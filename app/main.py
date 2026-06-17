@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import re
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -21,11 +22,14 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from rbac_rag.api_service import RagApiService
+from rbac_rag.rbac import get_allowed_domains, get_role_allowed_tables, validate_role_id
+from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
+APP_BUILD_ID = "guard-diagnostics-2026-06-17"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -126,6 +130,69 @@ def databricks_configured() -> bool:
         and has_sql_compute
         and has_credentials
     )
+
+
+@lru_cache(maxsize=1)
+def source_revision() -> str:
+    for key in ("APP_BUILD_SHA", "GIT_COMMIT", "SOURCE_VERSION", "DATABRICKS_GIT_COMMIT"):
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "rev-parse", "--short=12", "HEAD"],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=2,
+        )
+        return completed.stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def build_info() -> dict[str, Any]:
+    return {
+        "build_id": APP_BUILD_ID,
+        "source_revision": source_revision(),
+        "guard_features": [
+            "role_table_intersection",
+            "subquery_table_validation",
+            "post_check_failure_aliases",
+            "public_error_redaction",
+        ],
+    }
+
+
+def build_salary_subquery_probe(service: Any, effective_allowed_tables: set[str]) -> dict[str, Any]:
+    catalog = service.settings.catalog
+    probe_sql = f"""
+    SELECT e.event_id,
+           (SELECT p.base_salary
+            FROM {catalog}.silver.hr_payroll_summary p
+            WHERE p.employee_id = e.owner_employee_id
+            LIMIT 1) AS amt
+    FROM {catalog}.silver.events e
+    LIMIT 20
+    """
+    try:
+        validate_select_sql(
+            probe_sql,
+            effective_allowed_tables,
+            table_columns=service.mappings.table_columns,
+        )
+    except SqlValidationError as exc:
+        return {
+            "expected": "BLOCKED",
+            "actual": "BLOCKED",
+            "detail": str(exc),
+        }
+    return {
+        "expected": "BLOCKED",
+        "actual": "ALLOWED",
+        "detail": "Salary subquery was allowed by the current effective table set.",
+    }
 
 
 def safe_error(error: Exception) -> str:
@@ -732,7 +799,11 @@ def admin_ui():
 @app.get("/health")
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "databricks_configured": databricks_configured()}
+    return {
+        "status": "ok",
+        "databricks_configured": databricks_configured(),
+        "build": build_info(),
+    }
 
 
 @app.get("/api/backend/status")
@@ -743,7 +814,48 @@ def backend_status():
         "databricks_job_configured": False,
         "databricks_host_configured": bool(os.getenv("DATABRICKS_HOST", "").strip()),
         "databricks_sql_configured": databricks_configured(),
+        "build": build_info(),
     }
+
+
+@app.get("/api/admin/debug/rbac/{role_id}")
+def debug_rbac(role_id: str):
+    try:
+        service = get_rag_service()
+        active_role = validate_role_id(role_id, service.role_ids)
+        domains = get_allowed_domains(
+            service.sql_client,
+            active_role,
+            service.role_ids,
+            service.settings.catalog,
+        )
+        domain_allowed_tables = service.mappings.get_allowed_tables(domains)
+        role_allowed_tables = get_role_allowed_tables(active_role, service.settings.catalog)
+        effective_allowed_tables = (
+            domain_allowed_tables.intersection(role_allowed_tables)
+            if role_allowed_tables
+            else domain_allowed_tables
+        )
+        salary_probe = build_salary_subquery_probe(service, effective_allowed_tables)
+        return {
+            "build": build_info(),
+            "role_id": active_role,
+            "catalog": service.settings.catalog,
+            "domains": domains,
+            "role_allowed_tables": sorted(role_allowed_tables),
+            "domain_allowed_tables": sorted(domain_allowed_tables),
+            "effective_allowed_tables": sorted(effective_allowed_tables),
+            "counts": {
+                "role_allowed_tables": len(role_allowed_tables),
+                "domain_allowed_tables": len(domain_allowed_tables),
+                "effective_allowed_tables": len(effective_allowed_tables),
+            },
+            "salary_subquery_probe": salary_probe,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=safe_error(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=safe_error(exc)) from exc
 
 
 @app.post("/api/admin/login")

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -46,6 +47,48 @@ class FakeRagService:
         }
 
 
+class FakeCollectResult:
+    def __init__(self, rows: list[object]) -> None:
+        self.rows = rows
+
+    def collect(self) -> list[object]:
+        return self.rows
+
+
+class FakeSqlClient:
+    def sql(self, query: str, args: dict | None = None) -> FakeCollectResult:
+        if "access_policies" in query:
+            return FakeCollectResult(
+                [
+                    SimpleNamespace(system_name="ERP"),
+                    SimpleNamespace(system_name="GROUPWARE"),
+                ]
+            )
+        return FakeCollectResult([])
+
+
+class FakeMappings:
+    table_columns = {
+        "cos_adb.silver.events": ["event_id", "owner_employee_id"],
+        "cos_adb.silver.hr_payroll_summary": ["employee_id", "base_salary"],
+    }
+
+    def get_allowed_tables(self, domains: list[str]) -> set[str]:
+        return {
+            "cos_adb.silver.events",
+            "cos_adb.silver.marketing_campaign_plan",
+            "cos_adb.silver.voc_review_insights",
+            "cos_adb.silver.hr_payroll_summary",
+        }
+
+
+class FakeDebugRagService:
+    role_ids = ["MARKETING_STAFF"]
+    sql_client = FakeSqlClient()
+    mappings = FakeMappings()
+    settings = SimpleNamespace(catalog="cos_adb")
+
+
 def install_fake_service(monkeypatch, response: dict | None = None) -> FakeRagService:
     service = FakeRagService(response)
     monkeypatch.setattr(main, "get_rag_service", lambda: service)
@@ -84,6 +127,31 @@ def test_app_imports_and_health() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+    assert response.json()["build"]["build_id"]
+
+
+def test_backend_status_includes_build_marker() -> None:
+    client = TestClient(main.app)
+
+    response = client.get("/api/backend/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["backend"] == "in_process_rag"
+    assert payload["build"]["build_id"] == main.APP_BUILD_ID
+
+
+def test_admin_rbac_debug_reports_effective_role_allowlist(monkeypatch) -> None:
+    monkeypatch.setattr(main, "get_rag_service", lambda: FakeDebugRagService())
+    client = TestClient(main.app)
+
+    response = client.get("/api/admin/debug/rbac/MARKETING_STAFF")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "cos_adb.silver.events" in payload["effective_allowed_tables"]
+    assert "cos_adb.silver.hr_payroll_summary" not in payload["effective_allowed_tables"]
+    assert payload["salary_subquery_probe"]["actual"] == "BLOCKED"
 
 
 def test_v1_chat_uses_in_process_rag(monkeypatch) -> None:
