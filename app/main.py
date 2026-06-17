@@ -258,6 +258,74 @@ def format_rag_api_result(raw: dict[str, Any], payload: dict[str, Any], access: 
     }
 
 
+INTERNAL_IDENTIFIER_PATTERN = re.compile(
+    r"\b(?:`?[A-Za-z_][A-Za-z0-9_-]*`?\.){2}`?[A-Za-z_][A-Za-z0-9_-]*`?\b"
+)
+
+
+def redact_public_response(response: dict[str, Any]) -> dict[str, Any]:
+    public = dict(response)
+    public["answer"] = public_safe_answer(public)
+
+    sources = public.get("sources") if isinstance(public.get("sources"), dict) else {}
+    tables = sources.get("tables") if isinstance(sources.get("tables"), list) else []
+    public["sources"] = {
+        "tables": ["권한이 허용된 업무 데이터"] if tables and not public.get("blocked") else [],
+        "documents": [],
+    }
+    public["sql_log"] = {}
+    public["raw"] = {"redacted": True}
+
+    for key, value in {
+        "generated_sql": None,
+        "columns": [],
+        "rows": [],
+    }.items():
+        if key in public:
+            public[key] = value
+
+    return public
+
+
+def public_safe_answer(response: dict[str, Any]) -> str:
+    raw = response.get("raw") if isinstance(response.get("raw"), dict) else {}
+    failure_reason = str(raw.get("failure_reason") or "")
+    answer = str(response.get("answer") or "")
+    guard_status = str(response.get("guard_status") or "").upper()
+
+    if response.get("blocked"):
+        if failure_reason in {"SQL_VALIDATION_ERROR", "SQL_COLUMN_VALIDATION_ERROR"} or has_internal_detail(answer):
+            return "요청을 안전하게 처리할 수 없어 답변을 제공하지 못했습니다. 질문을 조금 더 구체적으로 다시 입력하거나 관리자에게 문의해 주세요."
+        return "현재 역할 권한으로는 해당 요청에 대한 답변을 제공할 수 없습니다."
+
+    if guard_status == "ERROR" or failure_reason in {"SQL_EXECUTION_ERROR", "SQL_COLUMN_VALIDATION_ERROR"}:
+        return "조회 처리 중 오류가 발생했습니다. 질문을 조금 더 구체적으로 다시 입력하거나 관리자에게 문의해 주세요."
+
+    return redact_internal_identifiers(answer)
+
+
+def has_internal_detail(value: str) -> bool:
+    lowered = value.lower()
+    return bool(
+        INTERNAL_IDENTIFIER_PATTERN.search(value)
+        or "sql references " in lowered
+        or "use only these columns" in lowered
+        or "unavailable columns" in lowered
+        or "non-allowed tables" in lowered
+    )
+
+
+def redact_internal_identifiers(value: str) -> str:
+    return INTERNAL_IDENTIFIER_PATTERN.sub("내부 데이터", value)
+
+
+def stream_error_payload(exc: Exception, status: int, mode: str) -> dict[str, Any]:
+    detail = safe_error(exc)
+    if mode == "user" and has_internal_detail(detail):
+        detail = "요청 처리 중 오류가 발생했습니다. 질문을 조금 더 구체적으로 다시 입력하거나 관리자에게 문의해 주세요."
+    return {"status": status, "detail": detail}
+
+
 def call_in_process_rag(payload: dict[str, Any], access: dict[str, Any]) -> dict:
     try:
         raw = execute_rag_chat(payload)
@@ -557,7 +625,7 @@ def answer_payload(payload: dict[str, Any], mode: str) -> dict:
     response = build_ui_response(result, payload, access, mode, backend=backend)
     log_ui_response(response, mode, backend)
     remember_live_result(response, payload, access)
-    return response
+    return redact_public_response(response) if mode == "user" else response
 
 
 def payload_to_dict(payload: BaseModel) -> dict[str, Any]:
@@ -635,11 +703,12 @@ def ui_stream_response(payload: dict[str, Any], mode: str) -> EventSourceRespons
             response = await task
             log_ui_response(response, mode, "in_process_rag")
             remember_live_result(response, payload, access)
-            yield sse_event("final", response)
+            final_response = redact_public_response(response) if mode == "user" else response
+            yield sse_event("final", final_response)
         except ValueError as exc:
-            yield sse_event("error", {"status": 400, "detail": safe_error(exc)})
+            yield sse_event("error", stream_error_payload(exc, 400, mode))
         except Exception as exc:
-            yield sse_event("error", {"status": 502, "detail": safe_error(exc)})
+            yield sse_event("error", stream_error_payload(exc, 502, mode))
 
     return EventSourceResponse(event_generator())
 

@@ -6,8 +6,9 @@ from app import main
 
 
 class FakeRagService:
-    def __init__(self) -> None:
+    def __init__(self, response: dict | None = None) -> None:
         self.calls = []
+        self.response = response
 
     def chat(self, *, event_callback=None, **kwargs):
         self.calls.append(kwargs)
@@ -21,6 +22,8 @@ class FakeRagService:
                 },
             )
             event_callback("intent", {"mode": "WORK"})
+        if self.response is not None:
+            return self.response
         return {
             "request_id": "req-1",
             "mode": "WORK",
@@ -42,10 +45,35 @@ class FakeRagService:
         }
 
 
-def install_fake_service(monkeypatch) -> FakeRagService:
-    service = FakeRagService()
+def install_fake_service(monkeypatch, response: dict | None = None) -> FakeRagService:
+    service = FakeRagService(response)
     monkeypatch.setattr(main, "get_rag_service", lambda: service)
     return service
+
+
+def blocked_table_response() -> dict:
+    return {
+        "request_id": "req-blocked",
+        "mode": "WORK",
+        "status": "DENIED",
+        "answer": "SQL references non-allowed tables: cos_adb.silver.cs_response_manual",
+        "blocked": True,
+        "role_id": "CS_STAFF",
+        "generated_sql": "SELECT * FROM cos_adb.silver.cs_response_manual LIMIT 20",
+        "columns": [],
+        "rows": [],
+        "row_count": 0,
+        "sources": {"tables": [], "documents": []},
+        "checks": {"rbac_enabled": True, "pre_check": "PASS", "post_check": "SKIPPED"},
+        "raw": {
+            "failure_reason": "SQL_VALIDATION_ERROR",
+            "detail": "SQL references non-allowed tables: cos_adb.silver.cs_response_manual",
+            "sql": "SELECT * FROM cos_adb.silver.cs_response_manual LIMIT 20",
+            "table_access": [
+                {"table": "cos_adb.silver.cs_response_manual", "result": "DENIED"}
+            ],
+        },
+    }
 
 
 def test_app_imports_and_health() -> None:
@@ -103,7 +131,7 @@ def test_ui_chat_response_shape(monkeypatch) -> None:
     assert payload["effective_identity"]["role_id"] == "GENERAL_EMPLOYEE"
     assert payload["guard_status"] == "SUCCESS"
     assert payload["answer"] == "ok"
-    assert payload["sql_log"]["generated_sql"] == "SELECT 1 LIMIT 20"
+    assert payload["sql_log"] == {}
 
 
 def test_ui_stream_final_is_ui_shape(monkeypatch) -> None:
@@ -182,3 +210,57 @@ def test_execute_rag_chat_coerces_string_false_options(monkeypatch) -> None:
 
     assert service.calls[-1]["rbac_enabled"] is False
     assert service.calls[-1]["post_check"] is False
+
+
+def test_public_chat_redacts_internal_table_names(monkeypatch) -> None:
+    install_fake_service(monkeypatch, blocked_table_response())
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/chat",
+        json={"query": "/work show data", "role_id": "CS_STAFF"},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert "cos_adb" not in payload["answer"]
+    assert "SQL references" not in payload["answer"]
+    assert payload["raw"] == {"redacted": True}
+    assert payload["sql_log"] == {}
+
+
+def test_admin_simulation_keeps_internal_table_names(monkeypatch) -> None:
+    install_fake_service(monkeypatch, blocked_table_response())
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/admin/simulate",
+        json={
+            "query": "/work show data",
+            "role_id": "CS_STAFF",
+            "department_name": "CS",
+            "security_clearance": "CONFIDENTIAL",
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert "cos_adb.silver.cs_response_manual" in payload["answer"]
+    assert "cos_adb.silver.cs_response_manual" in json.dumps(payload["raw"])
+
+
+def test_public_chat_stream_redacts_internal_table_names(monkeypatch) -> None:
+    install_fake_service(monkeypatch, blocked_table_response())
+    client = TestClient(main.app)
+
+    with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={"query": "/work show data", "role_id": "CS_STAFF"},
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    final_payload = json.loads(body.split("data: ")[-1].strip())
+    assert response.status_code == 200
+    assert "cos_adb" not in final_payload["answer"]
+    assert final_payload["raw"] == {"redacted": True}
