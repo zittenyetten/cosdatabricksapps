@@ -37,7 +37,7 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "answer-summary-guard-2026-06-17"
+APP_BUILD_ID = "admin-postcheck-toggle-2026-06-17"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -179,6 +179,7 @@ def build_info() -> dict[str, Any]:
             "server_side_role_and_rbac_lock",
             "sensitive_table_role_guard",
             "answer_summary_result_guard",
+            "admin_post_check_toggle",
         ],
     }
 
@@ -361,8 +362,10 @@ def secure_request_payload(payload: dict[str, Any], mode: str) -> dict[str, Any]
     if mode == "admin_simulation" and not env_bool("RBAC_RAG_ALLOW_UNSAFE_ADMIN_SIMULATION", False):
         secured["rbac_enabled"] = True
         secured["pre_check_enabled"] = True
-        secured["post_check_enabled"] = True
-        secured["security_mode"] = "admin_guard_locked"
+        secured["post_check_enabled"] = coerce_bool(
+            secured.get("post_check_enabled", secured.get("post_check", True))
+        )
+        secured["security_mode"] = "admin_rbac_locked_post_check_toggle"
         return secured
 
     return secured

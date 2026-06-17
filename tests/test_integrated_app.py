@@ -239,7 +239,7 @@ def test_public_chat_locks_role_and_guards_server_side(monkeypatch) -> None:
     assert payload["security_mode"] == "public_locked"
 
 
-def test_admin_simulation_locks_unsafe_guard_toggles_by_default(monkeypatch) -> None:
+def test_admin_simulation_locks_rbac_but_respects_post_check_toggle(monkeypatch) -> None:
     service = install_fake_service(monkeypatch)
     client = TestClient(main.app)
 
@@ -259,8 +259,8 @@ def test_admin_simulation_locks_unsafe_guard_toggles_by_default(monkeypatch) -> 
     assert response.status_code == 200
     assert service.calls[-1]["role_id"] == "QA_MANAGER"
     assert service.calls[-1]["rbac_enabled"] is True
-    assert service.calls[-1]["post_check"] is True
-    assert payload["security_mode"] == "admin_guard_locked"
+    assert service.calls[-1]["post_check"] is False
+    assert payload["security_mode"] == "admin_rbac_locked_post_check_toggle"
 
 
 def test_v1_chat_locks_role_and_guards_server_side(monkeypatch) -> None:
@@ -323,7 +323,6 @@ def test_admin_stream_final_is_ui_shape(monkeypatch) -> None:
 
 
 def test_admin_stream_respects_post_check_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("RBAC_RAG_ALLOW_UNSAFE_ADMIN_SIMULATION", "true")
     service = install_fake_service(monkeypatch)
     client = TestClient(main.app)
 
