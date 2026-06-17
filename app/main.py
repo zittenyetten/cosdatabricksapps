@@ -21,15 +21,23 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+import rbac_rag.engine as rag_engine_module
+import rbac_rag.rbac as rbac_module
+import rbac_rag.sql_validator as sql_validator_module
 from rbac_rag.api_service import RagApiService
-from rbac_rag.rbac import get_allowed_domains, get_role_table_access, validate_role_id
+from rbac_rag.rbac import (
+    get_allowed_domains,
+    get_role_table_access,
+    get_sensitive_table_denials,
+    validate_role_id,
+)
 from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "sensitive-table-guard-2026-06-17"
+APP_BUILD_ID = "runtime-guard-diagnostics-2026-06-17"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -156,6 +164,11 @@ def build_info() -> dict[str, Any]:
     return {
         "build_id": APP_BUILD_ID,
         "source_revision": source_revision(),
+        "runtime_modules": {
+            "rbac_rag.engine": getattr(rag_engine_module, "__file__", "unknown"),
+            "rbac_rag.rbac": getattr(rbac_module, "__file__", "unknown"),
+            "rbac_rag.sql_validator": getattr(sql_validator_module, "__file__", "unknown"),
+        },
         "guard_features": [
             "role_table_intersection",
             "subquery_table_validation",
@@ -190,12 +203,39 @@ def build_salary_subquery_probe(service: Any, effective_allowed_tables: set[str]
         return {
             "expected": "BLOCKED",
             "actual": "BLOCKED",
+            "stage": "table_validation",
             "detail": str(exc),
+        }
+    sensitive_denials = get_sensitive_table_denials(
+        "MARKETING_STAFF",
+        [f"{catalog}.silver.hr_payroll_summary"],
+        catalog,
+    )
+    if sensitive_denials:
+        return {
+            "expected": "BLOCKED",
+            "actual": "BLOCKED",
+            "stage": "sensitive_table_guard",
+            "detail": (
+                "SQL references sensitive tables not allowed for role MARKETING_STAFF: "
+                + ", ".join(sensitive_denials)
+            ),
         }
     return {
         "expected": "BLOCKED",
         "actual": "ALLOWED",
         "detail": "Salary subquery was allowed by the current effective table set.",
+    }
+
+
+def build_sensitive_table_probe(service: Any, role_id: str, tables: list[str]) -> dict[str, Any]:
+    denials = get_sensitive_table_denials(role_id, tables, service.settings.catalog)
+    return {
+        "role_id": role_id,
+        "tables": tables,
+        "expected": "BLOCKED" if denials else "ALLOWED",
+        "actual": "BLOCKED" if denials else "ALLOWED",
+        "denials": denials,
     }
 
 
@@ -892,6 +932,7 @@ def debug_rbac(role_id: str):
         effective_allowed_tables = role_allowed_tables
         domain_overlap_tables = role_allowed_tables.intersection(domain_allowed_tables)
         salary_probe = build_salary_subquery_probe(service, effective_allowed_tables)
+        payroll_table = f"{service.settings.catalog}.silver.hr_payroll_summary"
         return {
             "build": build_info(),
             "role_id": active_role,
@@ -913,6 +954,11 @@ def debug_rbac(role_id: str):
                 "effective_allowed_tables": len(effective_allowed_tables),
             },
             "salary_subquery_probe": salary_probe,
+            "sensitive_table_probe": build_sensitive_table_probe(
+                service,
+                active_role,
+                [payroll_table],
+            ),
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=safe_error(exc)) from exc
