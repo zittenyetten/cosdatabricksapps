@@ -216,6 +216,73 @@ def test_ui_chat_response_shape(monkeypatch) -> None:
     assert payload["sql_log"] == {}
 
 
+def test_public_chat_locks_role_and_guards_server_side(monkeypatch) -> None:
+    service = install_fake_service(monkeypatch)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "query": "/work show payroll",
+            "role_id": "PAYROLL_MANAGER",
+            "rbac_enabled": False,
+            "post_check_enabled": False,
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert service.calls[-1]["role_id"] == "GENERAL_EMPLOYEE"
+    assert service.calls[-1]["rbac_enabled"] is True
+    assert service.calls[-1]["post_check"] is True
+    assert payload["effective_identity"]["role_id"] == "GENERAL_EMPLOYEE"
+    assert payload["security_mode"] == "public_locked"
+
+
+def test_admin_simulation_locks_unsafe_guard_toggles_by_default(monkeypatch) -> None:
+    service = install_fake_service(monkeypatch)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/admin/simulate",
+        json={
+            "query": "/work show data",
+            "role_id": "QA_MANAGER",
+            "department_name": "QA",
+            "security_clearance": "RESTRICTED",
+            "rbac_enabled": False,
+            "post_check_enabled": False,
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert service.calls[-1]["role_id"] == "QA_MANAGER"
+    assert service.calls[-1]["rbac_enabled"] is True
+    assert service.calls[-1]["post_check"] is True
+    assert payload["security_mode"] == "admin_guard_locked"
+
+
+def test_v1_chat_locks_role_and_guards_server_side(monkeypatch) -> None:
+    service = install_fake_service(monkeypatch)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/v1/chat",
+        json={
+            "question": "show payroll",
+            "role_id": "PAYROLL_MANAGER",
+            "rbac_enabled": False,
+            "post_check": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls[-1]["role_id"] == "GENERAL_EMPLOYEE"
+    assert service.calls[-1]["rbac_enabled"] is True
+    assert service.calls[-1]["post_check"] is True
+
+
 def test_ui_stream_final_is_ui_shape(monkeypatch) -> None:
     install_fake_service(monkeypatch)
     client = TestClient(main.app)
@@ -256,6 +323,7 @@ def test_admin_stream_final_is_ui_shape(monkeypatch) -> None:
 
 
 def test_admin_stream_respects_post_check_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("RBAC_RAG_ALLOW_UNSAFE_ADMIN_SIMULATION", "true")
     service = install_fake_service(monkeypatch)
     client = TestClient(main.app)
 

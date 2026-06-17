@@ -29,7 +29,7 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "cos-adb-policy-sync-2026-06-17"
+APP_BUILD_ID = "server-side-guard-lock-2026-06-17"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -163,6 +163,7 @@ def build_info() -> dict[str, Any]:
             "public_error_redaction",
             "catalog_table_name_sync",
             "cos_adb_role_table_policy",
+            "server_side_role_and_rbac_lock",
         ],
     }
 
@@ -297,6 +298,48 @@ def coerce_bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() not in {"false", "0", "off", "no", "n", ""}
     return bool(value)
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    return default if value is None else coerce_bool(value)
+
+
+def secure_request_payload(payload: dict[str, Any], mode: str) -> dict[str, Any]:
+    secured = dict(payload)
+    if mode == "user":
+        if not env_bool("RBAC_RAG_ALLOW_PUBLIC_ROLE_SELECTION", False):
+            secured["role_id"] = os.getenv("RBAC_RAG_PUBLIC_ROLE_ID", "GENERAL_EMPLOYEE").strip() or "GENERAL_EMPLOYEE"
+        secured["rbac_enabled"] = True
+        secured["pre_check_enabled"] = True
+        secured["post_check_enabled"] = True
+        secured["security_mode"] = "public_locked"
+        return secured
+
+    if mode == "admin_simulation" and not env_bool("RBAC_RAG_ALLOW_UNSAFE_ADMIN_SIMULATION", False):
+        secured["rbac_enabled"] = True
+        secured["pre_check_enabled"] = True
+        secured["post_check_enabled"] = True
+        secured["security_mode"] = "admin_guard_locked"
+        return secured
+
+    return secured
+
+
+def secure_native_request_payload(payload: RagChatRequest) -> dict[str, Any]:
+    role_id = payload.role_id
+    if not env_bool("RBAC_RAG_ALLOW_NATIVE_ROLE_SELECTION", False):
+        role_id = os.getenv("RBAC_RAG_PUBLIC_ROLE_ID", "GENERAL_EMPLOYEE").strip() or "GENERAL_EMPLOYEE"
+    unsafe_options_allowed = env_bool("RBAC_RAG_ALLOW_UNSAFE_NATIVE_OPTIONS", False)
+    return {
+        "question": payload.question,
+        "role_id": role_id,
+        "mode": payload.mode,
+        "rbac_enabled": payload.rbac_enabled if unsafe_options_allowed else True,
+        "post_check": payload.post_check if unsafe_options_allowed else True,
+        "top_k": payload.top_k,
+        "security_mode": "native_locked" if not unsafe_options_allowed else "native_unlocked",
+    }
 
 
 def format_rag_api_result(raw: dict[str, Any], payload: dict[str, Any], access: dict[str, Any]) -> dict:
@@ -659,6 +702,7 @@ def build_ui_response(
             "security_clearance": payload.get("security_clearance") or access["default_clearance"],
         },
         "backend": backend,
+        "security_mode": payload.get("security_mode") or "default",
     }
     return response
 
@@ -688,6 +732,7 @@ def log_ui_response(response: dict[str, Any], mode: str, backend: str) -> None:
 
 
 def answer_payload(payload: dict[str, Any], mode: str) -> dict:
+    payload = secure_request_payload(payload, mode)
     access = ROLE_ACCESS.get(payload["role_id"], ROLE_ACCESS["GENERAL_EMPLOYEE"])
     backend = "in_process_rag"
     result = call_in_process_rag(payload, access)
@@ -711,6 +756,8 @@ def sse_event(event: str, payload: dict[str, Any]) -> dict[str, str]:
 
 
 def native_stream_response(payload: RagChatRequest) -> EventSourceResponse:
+    secured_payload = secure_native_request_payload(payload)
+
     async def event_generator():
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
         loop = asyncio.get_running_loop()
@@ -720,12 +767,12 @@ def native_stream_response(payload: RagChatRequest) -> EventSourceResponse:
 
         def run_chat() -> dict[str, Any]:
             return get_rag_service().chat(
-                question=payload.question,
-                role_id=payload.role_id,
-                mode=payload.mode,
-                rbac_enabled=payload.rbac_enabled,
-                post_check=payload.post_check,
-                top_k=payload.top_k,
+                question=secured_payload["question"],
+                role_id=secured_payload["role_id"],
+                mode=secured_payload["mode"],
+                rbac_enabled=secured_payload["rbac_enabled"],
+                post_check=secured_payload["post_check"],
+                top_k=secured_payload["top_k"],
                 event_callback=emit,
             )
 
@@ -748,6 +795,8 @@ def native_stream_response(payload: RagChatRequest) -> EventSourceResponse:
 
 
 def ui_stream_response(payload: dict[str, Any], mode: str) -> EventSourceResponse:
+    payload = secure_request_payload(payload, mode)
+
     async def event_generator():
         access = ROLE_ACCESS.get(payload["role_id"], ROLE_ACCESS["GENERAL_EMPLOYEE"])
         queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
@@ -898,14 +947,15 @@ async def simulate_stream(payload: SimulateRequest) -> EventSourceResponse:
 
 @app.post("/v1/chat")
 def rag_chat(payload: RagChatRequest) -> dict[str, object]:
+    secured_payload = secure_native_request_payload(payload)
     try:
         return get_rag_service().chat(
-            question=payload.question,
-            role_id=payload.role_id,
-            mode=payload.mode,
-            rbac_enabled=payload.rbac_enabled,
-            post_check=payload.post_check,
-            top_k=payload.top_k,
+            question=secured_payload["question"],
+            role_id=secured_payload["role_id"],
+            mode=secured_payload["mode"],
+            rbac_enabled=secured_payload["rbac_enabled"],
+            post_check=secured_payload["post_check"],
+            top_k=secured_payload["top_k"],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=safe_error(exc)) from exc
