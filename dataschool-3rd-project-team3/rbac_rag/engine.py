@@ -3,6 +3,7 @@ import time
 import uuid
 from typing import Any, Callable
 
+from .answer_guard import validate_answer_summary
 from .llm import DatabricksLLM
 from .logging_utils import kst_now, save_rag_log
 from .mappings import TableMappings
@@ -365,6 +366,43 @@ class RagEngine:
             if verbose:
                 print(format_output(output))
             return output
+
+        if use_post_check and use_rbac:
+            answer_guard = validate_answer_summary(
+                output["summary"] or "",
+                role_id=active_role,
+                catalog=self.settings.catalog,
+                executed_sql=sql,
+                referenced_tables=referenced_tables,
+                returned_columns=output["columns_returned"],
+                results_text=results_str,
+            )
+            if not answer_guard.allowed:
+                access_tables = referenced_tables or [
+                    self.mappings.table_id_to_fqn.get(table, table) for table in searched
+                ]
+                detail = "[Post-Check] Answer validation failed: " + "; ".join(
+                    answer_guard.reasons
+                )
+                output["table_access"] = [
+                    {"table": table, "result": "DENIED"} for table in access_tables
+                ]
+                output["status"] = "DENIED"
+                output["detail"] = detail
+                output["data"] = None
+                output["summary"] = None
+                output["execution_status"] = "SUCCESS"
+                output["permission_check"] = "DENY"
+                output["success_reason"] = "SQL_EXECUTED"
+                output["failure_reason"] = "POST_CHECK_FAILED"
+                output["answer_guard_reasons"] = answer_guard.reasons
+                output["row_count_returned"] = 0
+                _emit(event_callback, "summarization", status="BLOCKED", detail=detail)
+                _emit(event_callback, "post_check", status="BLOCKED", verdict=detail)
+                self._save_log(output, event_callback)
+                if verbose:
+                    print(format_output(output))
+                return output
         _emit(event_callback, "summarization", status="SUCCESS")
 
         access_tables = referenced_tables or [

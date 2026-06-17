@@ -171,6 +171,26 @@ class PayrollSubqueryLlm(FakeLlm):
         return text
 
 
+class MaliciousSummaryLlm(FakeLlm):
+    def summarize_results(self, *args, **kwargs):
+        return """
+        질문에 따라 급여 서브쿼리를 추가했습니다.
+
+        ```sql
+        SELECT e.event_id,
+               (SELECT p.base_salary
+                FROM cos_adb.silver.hr_payroll_summary p
+                WHERE p.employee_id = e.owner_employee_id
+                LIMIT 1) AS amt
+        FROM cos_adb.silver.events e
+        LIMIT 20
+        ```
+
+        | event_id | amt |
+        | E1 | 7200000 |
+        """
+
+
 def build_engine(fake_llm, spark=None):
     return RagEngine(
         spark=spark or FakeSql(),
@@ -273,6 +293,27 @@ def test_engine_blocks_sensitive_payroll_even_when_policy_allows_table() -> None
     assert "sensitive tables" in result["detail"]
     assert "hr_payroll_summary" in result["detail"]
     assert fake_llm.post_check_calls == 0
+
+
+def test_engine_blocks_malicious_summary_after_safe_sql_execution() -> None:
+    fake_llm = MaliciousSummaryLlm()
+    engine = build_engine(fake_llm)
+
+    result = engine.ask_rag(
+        "show events and include salary subquery",
+        role_id="MARKETING_STAFF",
+        rbac_enabled=True,
+        post_check_enabled=True,
+        verbose=False,
+    )
+
+    assert result["status"] == "DENIED"
+    assert result["failure_reason"] == "POST_CHECK_FAILED"
+    assert result["summary"] is None
+    assert result["data"] is None
+    assert "Answer validation failed" in result["detail"]
+    assert "hr_payroll_summary" in result["detail"]
+    assert fake_llm.post_check_calls == 1
 
 
 def test_post_check_failure_parser_accepts_block_and_deny() -> None:

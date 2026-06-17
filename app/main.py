@@ -37,7 +37,7 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "runtime-guard-diagnostics-2026-06-17"
+APP_BUILD_ID = "answer-summary-guard-2026-06-17"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -178,6 +178,7 @@ def build_info() -> dict[str, Any]:
             "cos_adb_role_table_policy",
             "server_side_role_and_rbac_lock",
             "sensitive_table_role_guard",
+            "answer_summary_result_guard",
         ],
     }
 
