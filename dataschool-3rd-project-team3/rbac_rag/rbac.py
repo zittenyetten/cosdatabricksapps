@@ -24,12 +24,12 @@ ROLE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
 ROLE_ALLOWED_TABLES = {
     "COMPLIANCE_MANAGER": [
         "silver.compliance_audit_logs",
-        "silver.regulatory_policy_documents",
+        "silver.legal_regulatory_documents",
         "governance.role_change_history",
     ],
     "CS_STAFF": [
         "silver.customer_inquiries",
-        "silver.voc_review_insights",
+        "silver.voc_review_voc_insights",
         "silver.cs_response_manuals",
     ],
     "EXECUTIVE": [
@@ -38,13 +38,13 @@ ROLE_ALLOWED_TABLES = {
         "gold.investment_decision_summary",
     ],
     "FINANCE_MANAGER": [
-        "silver.finance_sales_summary",
-        "silver.finance_budget_plan",
-        "silver.finance_expense_records",
+        "silver.fin_sales_summary",
+        "silver.fin_budget_plan",
+        "silver.fin_expense_records",
     ],
     "FINANCE_STAFF": [
-        "silver.finance_sales_summary",
-        "silver.finance_expense_records",
+        "silver.fin_sales_summary",
+        "silver.fin_expense_records",
     ],
     "GENERAL_EMPLOYEE": [
         "silver.events",
@@ -66,25 +66,25 @@ ROLE_ALLOWED_TABLES = {
         "governance.access_policies",
     ],
     "LEGAL_STAFF": [
-        "silver.legal_contracts",
-        "silver.regulatory_policy_documents",
+        "silver.legal_contract_metadata",
+        "silver.legal_regulatory_documents",
     ],
     "MARKETING_STAFF": [
         "silver.events",
-        "silver.marketing_campaign_plan",
-        "silver.voc_review_insights",
+        "silver.mkt_campaign_plan",
+        "silver.voc_review_voc_insights",
     ],
     "PAYROLL_MANAGER": [
         "silver.hr_payroll_summary",
         "silver.compensation_adjustments",
     ],
     "PRODUCTION_MANAGER": [
-        "silver.production_plan",
-        "silver.manufacturing_work_orders",
+        "silver.mfg_production_plan",
+        "silver.mfg_work_orders",
         "silver.equipment_logs",
     ],
     "PRODUCTION_STAFF": [
-        "silver.manufacturing_work_orders",
+        "silver.mfg_work_orders",
         "silver.batch_manufacturing_records",
         "silver.equipment_logs",
     ],
@@ -107,7 +107,7 @@ ROLE_ALLOWED_TABLES = {
     ],
     "RA_STAFF": [
         "silver.ra_labeling_review",
-        "silver.marketing_claim_review",
+        "silver.mkt_ad_copy_review",
     ],
     "RND_MANAGER": [
         "silver.rnd_product_master",

@@ -30,5 +30,6 @@ def test_marketing_staff_role_allowlist_excludes_payroll_tables() -> None:
     tables = get_role_allowed_tables("MARKETING_STAFF", "cos_adb")
 
     assert "cos_adb.silver.events" in tables
-    assert "cos_adb.silver.marketing_campaign_plan" in tables
+    assert "cos_adb.silver.mkt_campaign_plan" in tables
+    assert "cos_adb.silver.voc_review_voc_insights" in tables
     assert "cos_adb.silver.hr_payroll_summary" not in tables

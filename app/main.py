@@ -29,7 +29,7 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "guard-diagnostics-2026-06-17"
+APP_BUILD_ID = "role-table-sync-2026-06-17"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -69,25 +69,25 @@ class RagChatRequest(BaseModel):
 
 
 ROLE_ROWS = [
-    ("COMPLIANCE_MANAGER", "Compliance Manager", "Compliance and audit log management", "RESTRICTED", "Compliance", ["QMS", "GROUPWARE"], ["Legal/Compliance", "Quality/RA", "Audit"], ["cos_adb.silver.compliance_audit_logs", "cos_adb.silver.regulatory_policy_documents", "cos_adb.governance.role_change_history"]),
-    ("CS_STAFF", "CS Staff", "Customer inquiry and response manual management", "CONFIDENTIAL", "CS", ["CRM", "GROUPWARE"], ["Customer Service", "VOC", "Event"], ["cos_adb.silver.customer_inquiries", "cos_adb.silver.voc_review_insights", "cos_adb.silver.cs_response_manuals"]),
+    ("COMPLIANCE_MANAGER", "Compliance Manager", "Compliance and audit log management", "RESTRICTED", "Compliance", ["QMS", "GROUPWARE"], ["Legal/Compliance", "Quality/RA", "Audit"], ["cos_adb.silver.compliance_audit_logs", "cos_adb.silver.legal_regulatory_documents", "cos_adb.governance.role_change_history"]),
+    ("CS_STAFF", "CS Staff", "Customer inquiry and response manual management", "CONFIDENTIAL", "CS", ["CRM", "GROUPWARE"], ["Customer Service", "VOC", "Event"], ["cos_adb.silver.customer_inquiries", "cos_adb.silver.voc_review_voc_insights", "cos_adb.silver.cs_response_manuals"]),
     ("EXECUTIVE", "Executive", "Company KPI, strategy, and investment decisions", "RESTRICTED", "Executive", ["ERP", "QMS", "PLM", "GROUPWARE"], ["Executive", "Finance", "Marketing", "Quality/RA", "R&D/Product"], ["cos_adb.gold.executive_kpi_summary", "cos_adb.gold.company_strategy_brief", "cos_adb.gold.investment_decision_summary"]),
-    ("FINANCE_MANAGER", "Finance Manager", "Tax, budget, and investment material approval", "RESTRICTED", "Finance", ["ERP"], ["Finance", "SCM", "Distribution"], ["cos_adb.silver.finance_sales_summary", "cos_adb.silver.finance_budget_plan", "cos_adb.silver.finance_expense_records"]),
-    ("FINANCE_STAFF", "Finance Staff", "Expense, budget, and sales aggregation", "CONFIDENTIAL", "Finance", ["ERP"], ["Finance"], ["cos_adb.silver.finance_sales_summary", "cos_adb.silver.finance_expense_records"]),
+    ("FINANCE_MANAGER", "Finance Manager", "Tax, budget, and investment material approval", "RESTRICTED", "Finance", ["ERP"], ["Finance", "SCM", "Distribution"], ["cos_adb.silver.fin_sales_summary", "cos_adb.silver.fin_budget_plan", "cos_adb.silver.fin_expense_records"]),
+    ("FINANCE_STAFF", "Finance Staff", "Expense, budget, and sales aggregation", "CONFIDENTIAL", "Finance", ["ERP"], ["Finance"], ["cos_adb.silver.fin_sales_summary", "cos_adb.silver.fin_expense_records"]),
     ("GENERAL_EMPLOYEE", "General Employee", "Internal notice and allowed department material access", "INTERNAL", "General", ["GROUPWARE"], ["Event", "Notice"], ["cos_adb.silver.events", "cos_adb.search.llm_table_context"]),
     ("HR_MANAGER", "HR Manager", "HR approval, evaluation, and privacy control", "RESTRICTED", "HR", ["HRIS"], ["HR"], ["cos_adb.silver.hr_employee_master", "cos_adb.silver.hr_performance_reviews", "cos_adb.silver.hr_training_records"]),
     ("HR_STAFF", "HR Staff", "HR operations, attendance, and training data handling", "CONFIDENTIAL", "HR", ["HRIS"], ["HR", "Training"], ["cos_adb.silver.hr_employee_master", "cos_adb.silver.hr_attendance_records", "cos_adb.silver.hr_training_records"]),
     ("IT_ADMIN", "IT Admin", "IAM, account, and permission management", "RESTRICTED", "IT", ["IAM", "GROUPWARE"], ["IAM", "Security", "Governance"], ["cos_adb.governance.rag_identity_map", "cos_adb.governance.role_change_history", "cos_adb.governance.access_policies"]),
-    ("LEGAL_STAFF", "Legal Staff", "Contract and legal document review", "RESTRICTED", "Legal", ["GROUPWARE"], ["Legal/Compliance"], ["cos_adb.silver.legal_contracts", "cos_adb.silver.regulatory_policy_documents"]),
-    ("MARKETING_STAFF", "Marketing Staff", "Campaign, ad copy, and launch schedule management", "DEPARTMENT", "Marketing", ["ERP", "GROUPWARE"], ["Marketing", "VOC", "Event"], ["cos_adb.silver.events", "cos_adb.silver.marketing_campaign_plan", "cos_adb.silver.voc_review_insights"]),
+    ("LEGAL_STAFF", "Legal Staff", "Contract and legal document review", "RESTRICTED", "Legal", ["GROUPWARE"], ["Legal/Compliance"], ["cos_adb.silver.legal_contract_metadata", "cos_adb.silver.legal_regulatory_documents"]),
+    ("MARKETING_STAFF", "Marketing Staff", "Campaign, ad copy, and launch schedule management", "DEPARTMENT", "Marketing", ["ERP", "GROUPWARE"], ["Marketing", "VOC", "Event"], ["cos_adb.silver.events", "cos_adb.silver.mkt_campaign_plan", "cos_adb.silver.voc_review_voc_insights"]),
     ("PAYROLL_MANAGER", "Payroll Manager", "Payroll summary and compensation data handling", "RESTRICTED", "HR", ["HRIS"], ["Payroll", "HR"], ["cos_adb.silver.hr_payroll_summary", "cos_adb.silver.compensation_adjustments"]),
-    ("PRODUCTION_MANAGER", "Production Manager", "Production planning and work approval", "CONFIDENTIAL", "Production", ["MES", "ERP"], ["Manufacturing", "SCM"], ["cos_adb.silver.production_plan", "cos_adb.silver.manufacturing_work_orders", "cos_adb.silver.equipment_logs"]),
-    ("PRODUCTION_STAFF", "Production Staff", "Work orders, manufacturing records, and equipment logs", "CONFIDENTIAL", "Production", ["MES"], ["Manufacturing"], ["cos_adb.silver.manufacturing_work_orders", "cos_adb.silver.batch_manufacturing_records", "cos_adb.silver.equipment_logs"]),
+    ("PRODUCTION_MANAGER", "Production Manager", "Production planning and work approval", "CONFIDENTIAL", "Production", ["MES", "ERP"], ["Manufacturing", "SCM"], ["cos_adb.silver.mfg_production_plan", "cos_adb.silver.mfg_work_orders", "cos_adb.silver.equipment_logs"]),
+    ("PRODUCTION_STAFF", "Production Staff", "Work orders, manufacturing records, and equipment logs", "CONFIDENTIAL", "Production", ["MES"], ["Manufacturing"], ["cos_adb.silver.mfg_work_orders", "cos_adb.silver.batch_manufacturing_records", "cos_adb.silver.equipment_logs"]),
     ("QA_MANAGER", "QA Manager", "Quality approval and audit response", "RESTRICTED", "QA", ["QMS", "LIMS", "GROUPWARE"], ["Quality/RA", "Manufacturing", "Event"], ["cos_adb.silver.qa_deviation_reports", "cos_adb.silver.qa_capa_records", "cos_adb.silver.qa_qc_test_results"]),
     ("QA_STAFF", "QA Staff", "Quality documents, deviation, and CAPA management", "CONFIDENTIAL", "QA", ["QMS"], ["Quality/RA"], ["cos_adb.silver.qa_deviation_reports", "cos_adb.silver.qa_capa_records"]),
     ("QC_ANALYST", "QC Analyst", "Test result and LIMS record management", "CONFIDENTIAL", "QC", ["LIMS", "QMS"], ["Quality/RA"], ["cos_adb.silver.qa_qc_test_results", "cos_adb.silver.lims_test_records"]),
     ("RA_MANAGER", "RA Manager", "Regulatory risk and certification document approval", "RESTRICTED", "RA", ["QMS", "GROUPWARE"], ["Legal/Compliance", "Quality/RA"], ["cos_adb.silver.ra_certification_documents", "cos_adb.silver.regulatory_risk_register"]),
-    ("RA_STAFF", "RA Staff", "Labeling, advertising, and regulatory review", "CONFIDENTIAL", "RA", ["QMS", "GROUPWARE"], ["Legal/Compliance", "Marketing"], ["cos_adb.silver.ra_labeling_review", "cos_adb.silver.marketing_claim_review"]),
+    ("RA_STAFF", "RA Staff", "Labeling, advertising, and regulatory review", "CONFIDENTIAL", "RA", ["QMS", "GROUPWARE"], ["Legal/Compliance", "Marketing"], ["cos_adb.silver.ra_labeling_review", "cos_adb.silver.mkt_ad_copy_review"]),
     ("RND_MANAGER", "R&D Manager", "Research task and formula approval", "RESTRICTED", "R&D", ["PLM", "QMS"], ["R&D/Product", "Quality/RA"], ["cos_adb.silver.rnd_product_master", "cos_adb.silver.rnd_formula_records", "cos_adb.silver.rnd_product_improvement_actions"]),
     ("RND_RESEARCHER", "R&D Researcher", "Product planning, formula development, and test records", "CONFIDENTIAL", "R&D", ["PLM", "QMS"], ["R&D/Product", "Quality/RA"], ["cos_adb.silver.rnd_product_master", "cos_adb.silver.rnd_product_improvement_actions", "cos_adb.silver.qa_qc_test_results"]),
     ("SCM_MANAGER", "SCM Manager", "Supplier and inventory policy approval", "CONFIDENTIAL", "SCM", ["ERP", "MES"], ["SCM", "Distribution", "Manufacturing"], ["cos_adb.silver.scm_supplier_master", "cos_adb.silver.inventory_policy", "cos_adb.silver.distribution_schedule"]),
@@ -161,6 +161,7 @@ def build_info() -> dict[str, Any]:
             "subquery_table_validation",
             "post_check_failure_aliases",
             "public_error_redaction",
+            "catalog_table_name_sync",
         ],
     }
 
@@ -239,8 +240,8 @@ def role_blocked_attempts(role_id: str) -> list[dict]:
     restricted_candidates = {
         "MARKETING_STAFF": ["cos_adb.silver.rnd_formula_records", "cos_adb.silver.hr_payroll_summary"],
         "GENERAL_EMPLOYEE": ["cos_adb.silver.hr_payroll_summary", "cos_adb.silver.rnd_formula_records"],
-        "RND_RESEARCHER": ["cos_adb.silver.finance_budget_plan", "cos_adb.silver.hr_payroll_summary"],
-        "QA_STAFF": ["cos_adb.silver.hr_payroll_summary", "cos_adb.silver.finance_budget_plan"],
+        "RND_RESEARCHER": ["cos_adb.silver.fin_budget_plan", "cos_adb.silver.hr_payroll_summary"],
+        "QA_STAFF": ["cos_adb.silver.hr_payroll_summary", "cos_adb.silver.fin_budget_plan"],
     }
     tables = restricted_candidates.get(role_id, ["cos_adb.silver.hr_payroll_summary", "cos_adb.silver.rnd_formula_records"])
     return [{"table": table, "count": index + 1, "reason": "RBAC pre-check blocked"} for index, table in enumerate(tables)]

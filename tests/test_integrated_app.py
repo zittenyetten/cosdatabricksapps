@@ -76,8 +76,8 @@ class FakeMappings:
     def get_allowed_tables(self, domains: list[str]) -> set[str]:
         return {
             "cos_adb.silver.events",
-            "cos_adb.silver.marketing_campaign_plan",
-            "cos_adb.silver.voc_review_insights",
+            "cos_adb.silver.mkt_campaign_plan",
+            "cos_adb.silver.voc_review_voc_insights",
             "cos_adb.silver.hr_payroll_summary",
         }
 
