@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+databricks-sdk
+databricks-sql-connector
+pydantic
+pydantic-settings
+python-dotenv
+sse-starlette
+pytest
+httpx
+-e ./dataschool-3rd-project-team3

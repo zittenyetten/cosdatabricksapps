@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sse-starlette
+pydantic
+pydantic-settings
+python-dotenv
+databricks-sdk
+databricks-sql-connector>=3.0.0
+pytest
+httpx
+

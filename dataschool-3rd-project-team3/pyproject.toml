@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dataschool-3rd-project-team3-rbac-rag"
+version = "0.1.0"
+description = "RBAC-based RAG SQL query package for COSBELLE"
+requires-python = ">=3.11"
+dependencies = [
+  "databricks-sdk",
+  "databricks-sql-connector>=3.0.0",
+  "pydantic",
+  "pydantic-settings",
+  "python-dotenv",
+]
+
+[tool.setuptools.packages.find]
+include = ["rbac_rag*"]

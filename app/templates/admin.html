@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>COSBELLE RAG Admin Console</title>
+  <link rel="stylesheet" href="/static/admin.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand-card">
+      <span class="brand-kicker">COSBELLE</span>
+      <strong>RAG<br />ADMIN</strong>
+      <span class="brand-caption">Endpoint based UI</span>
+    </div>
+
+    <nav class="side-nav">
+      <button class="active" data-target="overview">Overview</button>
+      <button data-target="simulator">Admin Chat</button>
+      <button data-target="adminDisplay">Admin Sources</button>
+      <button data-target="dashboard">Dashboards</button>
+      <button data-target="sqlLogs">SQL Logs</button>
+    </nav>
+
+    <div class="endpoint-tile">
+      <span>Primary endpoint</span>
+      <strong>/api/answer</strong>
+    </div>
+
+    <div class="admin-actions">
+      <a href="/">공통 Chat으로 돌아가기</a>
+      <button id="logoutButton" type="button">Logout</button>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">RBAC DB-Accessing LLM System</p>
+        <h1 id="pageTitle">Overview</h1>
+      </div>
+      <div class="status-cluster">
+        <span class="status-dot"></span>
+        <span>Local API</span>
+      </div>
+    </header>
+
+    <section id="overview" class="view active">
+      <div class="poster-hero">
+        <div class="poster-title">
+          <span>ADMIN UI</span>
+          <h2>챗봇, 출처 공개, 운영 대시보드를 한 화면 흐름으로 연결합니다.</h2>
+        </div>
+        <div class="poster-block lime">
+          <span>Admin query</span>
+          <strong>Admin Chat</strong>
+        </div>
+        <div class="poster-block sky">
+          <span>Admin display</span>
+          <strong>Sources</strong>
+        </div>
+        <div class="poster-block ink">
+          <span>Log / Dashboard</span>
+          <strong>SQL / BI</strong>
+        </div>
+      </div>
+
+      <div class="requirement-grid">
+        <article class="result-card accent-lime">
+          <h3>관리자 display</h3>
+          <p>DB, table, document citation source</p>
+        </article>
+        <article class="result-card accent-sky">
+          <h3>권한 기반 질의</h3>
+          <p>Role, clearance, RBAC, pre/post check</p>
+        </article>
+        <article class="result-card accent-ink">
+          <h3>운영 관리</h3>
+          <p>LLM dashboard, DB dashboard, SQL logs</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="adminDisplay" class="view">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Admin display</p>
+            <h2>조회 출처</h2>
+          </div>
+          <span class="badge" id="requestIdBadge">request: none</span>
+        </div>
+        <div class="source-grid">
+          <article class="result-card accent-lime">
+            <h3>Database / Table</h3>
+            <div id="databaseSources" class="source-list">No table sources returned</div>
+          </article>
+          <article class="result-card accent-sky">
+            <h3>Document Citations</h3>
+            <div id="documentSources" class="source-list">No document citations returned</div>
+          </article>
+          <article class="result-card accent-ink">
+            <h3>Guard / Blocking</h3>
+            <div id="guardSources" class="source-list">No guard result yet</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="dashboard" class="view">
+      <div class="dashboard-grid">
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">LLM operations</p>
+              <h2>전체 Dashboard</h2>
+            </div>
+            <button class="secondary" type="button" id="refreshDashboard">Refresh</button>
+          </div>
+          <div class="metrics" id="llmMetrics"></div>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Database output</p>
+          <h2>Database Dashboard</h2>
+          <div class="metrics" id="databaseMetrics"></div>
+        </div>
+
+        <div class="panel role-dashboard">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Role dashboard</p>
+              <h2>Role별 접근 가능 데이터</h2>
+            </div>
+            <select id="dashboardRole"></select>
+          </div>
+          <div id="roleAccessSummary" class="role-access-summary"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="sqlLogs" class="view">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">SQL query audit</p>
+            <h2>SQL 조회 로그 관리</h2>
+          </div>
+          <button class="secondary" type="button" id="refreshSqlLogs">Refresh</button>
+        </div>
+
+        <div class="log-filters">
+          <label>
+            시작일
+            <input id="sqlDateFrom" type="date" />
+          </label>
+          <label>
+            종료일
+            <input id="sqlDateTo" type="date" />
+          </label>
+          <label>
+            역할
+            <select id="sqlRoleFilter">
+              <option value="">전체 역할</option>
+            </select>
+          </label>
+          <label>
+            상태
+            <select id="sqlStatusFilter">
+              <option value="">전체 상태</option>
+              <option value="SUCCESS">SUCCESS</option>
+              <option value="DENIED">DENIED</option>
+              <option value="BLOCKED">BLOCKED</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+          </label>
+          <label>
+            테이블
+            <input id="sqlTableFilter" type="search" placeholder="테이블명" />
+          </label>
+          <button class="secondary" type="button" id="applySqlLogFilters">적용</button>
+        </div>
+
+        <div class="log-layout">
+          <div class="log-table-wrap">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th>조회 시간</th>
+                  <th>Table</th>
+                  <th>Rows</th>
+                  <th>Columns</th>
+                  <th>Actor</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="sqlLogRows">
+                <tr><td colspan="6">아직 로드된 로그가 없습니다.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <aside class="log-detail">
+            <p class="eyebrow">Log detail</p>
+            <div id="sqlLogDetail">로그 행을 선택하면 상세 정보가 표시됩니다.</div>
+          </aside>
+        </div>
+
+        <div class="log-pagination">
+          <button class="secondary" type="button" id="prevSqlLogPage">Previous</button>
+          <span id="sqlLogPageInfo">Page 1 / 1</span>
+          <button class="secondary" type="button" id="nextSqlLogPage">Next</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="simulator" class="view">
+      <div class="content-grid">
+        <form class="panel control-panel" id="simulateForm">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Admin query</p>
+              <h2>Admin Chat</h2>
+            </div>
+            <button class="primary" type="submit">Send</button>
+          </div>
+
+          <label for="role">역할</label>
+          <select id="role">
+            <option value="MARKETING_STAFF">MARKETING_STAFF</option>
+          </select>
+
+          <label for="department">부서</label>
+          <select id="department">
+            <option>Marketing</option>
+            <option>QA</option>
+            <option>QC</option>
+            <option>RA</option>
+            <option>R&D</option>
+            <option>Finance</option>
+            <option>HR</option>
+            <option>IT</option>
+            <option>Legal</option>
+            <option>Production</option>
+            <option>SCM</option>
+            <option>CS</option>
+            <option>Training</option>
+            <option>Compliance</option>
+            <option>Executive</option>
+            <option>General</option>
+          </select>
+
+          <label for="clearance">보안 등급</label>
+          <select id="clearance">
+            <option>DEPARTMENT</option>
+            <option>INTERNAL</option>
+            <option>CONFIDENTIAL</option>
+            <option>RESTRICTED</option>
+          </select>
+
+          <div class="toggle-grid">
+            <label class="toggle-row">
+              <input id="simRbacEnabled" type="checkbox" checked />
+              <span>RBAC ON</span>
+            </label>
+            <label class="toggle-row">
+              <input id="simPreCheckEnabled" type="checkbox" checked />
+              <span>Pre-check ON</span>
+            </label>
+            <label class="toggle-row">
+              <input id="simPostCheckEnabled" type="checkbox" checked />
+              <span>Post-check ON</span>
+            </label>
+          </div>
+
+          <label for="query">질문</label>
+          <textarea id="query" rows="6" placeholder="질문을 입력하세요"></textarea>
+        </form>
+
+        <aside class="panel profile-panel">
+          <p class="eyebrow">Effective profile</p>
+          <div class="profile-row"><span>Role</span><strong id="profileRole">MARKETING_STAFF</strong></div>
+          <div class="profile-row"><span>Department</span><strong id="profileDepartment">Marketing</strong></div>
+          <div class="profile-row"><span>Clearance</span><strong id="profileClearance">DEPARTMENT</strong></div>
+          <div class="guard-card">
+            <span>Guard status</span>
+            <strong id="guardStatus">READY</strong>
+          </div>
+          <div class="check-stack">
+            <div><span>RBAC</span><strong id="simRbacStatus">ON</strong></div>
+            <div><span>Pre-check</span><strong id="simPreStatus">READY</strong></div>
+            <div><span>Post-check</span><strong id="simPostStatus">READY</strong></div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="result-grid" id="result">
+        <div class="empty-state">Send를 누르면 답변, 조회 출처, 차단 여부가 표시됩니다.</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/stream.js?v=sse-post"></script>
+  <script src="/static/admin.js?v=sse-admin"></script>
+</body>
+</html>
