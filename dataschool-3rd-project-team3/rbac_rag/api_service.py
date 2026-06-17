@@ -112,7 +112,7 @@ def format_api_response(result: dict[str, Any], *, requested_role_id: str | None
         },
         "checks": {
             "rbac_enabled": bool(result.get("rbac_enabled", mode == "WORK")),
-            "pre_check": "BLOCKED" if result.get("failure_reason") in {"RBAC_DOMAIN_DENIED", "NO_SEARCH_RESULT"} else "PASS",
+            "pre_check": "BLOCKED" if result.get("failure_reason") in {"RBAC_DOMAIN_DENIED", "RBAC_TABLE_POLICY_EMPTY", "NO_SEARCH_RESULT"} else "PASS",
             "post_check": _post_check_status(result),
         },
     }
@@ -127,6 +127,7 @@ def _post_check_status(result: dict[str, Any]) -> str:
         return "BLOCKED"
     if result.get("failure_reason") in {
         "RBAC_DOMAIN_DENIED",
+        "RBAC_TABLE_POLICY_EMPTY",
         "NO_SEARCH_RESULT",
         "SQL_VALIDATION_ERROR",
         "SQL_COLUMN_VALIDATION_ERROR",

@@ -120,7 +120,7 @@ def test_format_api_response_hides_internal_column_validation_detail() -> None:
         "rbac_enabled": True,
         "post_check": True,
         "data": None,
-        "table_access": [{"table": "cos_adb.silver.cs_response_manuals", "result": "ERROR"}],
+        "table_access": [{"table": "cos_adb.silver.cs_customer_inquiries", "result": "ERROR"}],
         "failure_reason": "SQL_COLUMN_VALIDATION_ERROR",
         "execution_status": "FAILED",
     }

@@ -10,13 +10,13 @@ class FakeSql:
                 [
                     {
                         "table_schema": "silver",
-                        "table_name": "customer_inquiries",
-                        "fqn": "cos_adb.silver.customer_inquiries",
+                        "table_name": "cs_customer_inquiries",
+                        "fqn": "cos_adb.silver.cs_customer_inquiries",
                     },
                     {
                         "table_schema": "silver",
-                        "table_name": "cs_response_manuals",
-                        "fqn": "cos_adb.silver.cs_response_manuals",
+                        "table_name": "voc_review_voc_insights",
+                        "fqn": "cos_adb.silver.voc_review_voc_insights",
                     },
                     {
                         "table_schema": "silver",
@@ -29,12 +29,12 @@ class FakeSql:
             return FakeResult(
                 [
                     {
-                        "table_id": "silver__cs_response_manuals",
+                        "table_id": "silver__voc_review_voc_insights",
                         "layer": "silver",
                         "domain": "Customer Service",
                     },
                     {
-                        "table_id": "silver__customer_inquiries",
+                        "table_id": "silver__cs_customer_inquiries",
                         "layer": "silver",
                         "domain": "Customer Service",
                     },
@@ -45,19 +45,19 @@ class FakeSql:
                 [
                     {
                         "table_schema": "silver",
-                        "table_name": "cs_response_manuals",
+                        "table_name": "voc_review_voc_insights",
                         "column_name": "record_id",
                         "ordinal_position": 1,
                     },
                     {
                         "table_schema": "silver",
-                        "table_name": "cs_response_manuals",
+                        "table_name": "voc_review_voc_insights",
                         "column_name": "status",
                         "ordinal_position": 2,
                     },
                     {
                         "table_schema": "silver",
-                        "table_name": "customer_inquiries",
+                        "table_name": "cs_customer_inquiries",
                         "column_name": "inquiry_id",
                         "ordinal_position": 1,
                     },
@@ -86,8 +86,8 @@ def test_table_mappings_include_column_reference_in_allowed_tables() -> None:
 
     table_list = mappings.get_allowed_table_list(["Customer Service"])
 
-    assert "cos_adb.silver.cs_response_manuals (columns: record_id, status)" in table_list
-    assert "cos_adb.silver.customer_inquiries (columns: inquiry_id)" in table_list
+    assert "cos_adb.silver.voc_review_voc_insights (columns: record_id, status)" in table_list
+    assert "cos_adb.silver.cs_customer_inquiries (columns: inquiry_id)" in table_list
 
 
 def test_table_mappings_fall_back_when_columns_are_unknown() -> None:
@@ -103,5 +103,5 @@ def test_table_mappings_builds_when_column_metadata_is_unavailable() -> None:
 
     table_list = mappings.get_allowed_table_list(["Customer Service"])
 
-    assert "cos_adb.silver.cs_response_manuals" in table_list
+    assert "cos_adb.silver.voc_review_voc_insights" in table_list
     assert "columns:" not in table_list

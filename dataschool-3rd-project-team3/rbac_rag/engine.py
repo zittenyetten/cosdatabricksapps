@@ -10,7 +10,7 @@ from .prompts import MSG_ACCESS_DENIED
 from .rbac import (
     UNIVERSAL_DOMAINS,
     get_allowed_domains,
-    get_role_allowed_tables,
+    get_role_table_access,
     validate_role_id,
 )
 from .settings import RagSettings
@@ -114,10 +114,24 @@ class RagEngine:
                 if role_id
                 else self.allowed_domains
             )
-            allowed_table_set = self.mappings.get_allowed_tables(domains)
-            role_allowed_tables = get_role_allowed_tables(active_role, self.settings.catalog)
-            if role_allowed_tables:
-                allowed_table_set = allowed_table_set.intersection(role_allowed_tables)
+            domain_table_set = self.mappings.get_allowed_tables(domains)
+            role_table_access = get_role_table_access(
+                self.spark,
+                active_role,
+                self.valid_role_ids or None,
+                self.settings.catalog,
+            )
+            allowed_table_set = role_table_access.tables
+            if not allowed_table_set:
+                output["status"] = "DENIED"
+                output["detail"] = "허용된 업무 테이블이 없습니다. role-table 정책을 확인해 주세요."
+                output["execution_status"] = "BLOCKED"
+                output["permission_check"] = "DENY"
+                output["failure_reason"] = "RBAC_TABLE_POLICY_EMPTY"
+                self._save_log(output, event_callback)
+                if verbose:
+                    print(format_output(output))
+                return output
             table_list = self.mappings.format_table_list(allowed_table_set)
             table_id_mapping = self.mappings.get_table_id_mapping_for_tables(allowed_table_set)
         else:
@@ -132,6 +146,8 @@ class RagEngine:
             enabled=use_rbac,
             role_id=active_role,
             allowed_domains=domains or [],
+            role_table_source=role_table_access.source if use_rbac else None,
+            role_table_warnings=role_table_access.warnings if use_rbac else [],
         )
 
         if use_rbac:

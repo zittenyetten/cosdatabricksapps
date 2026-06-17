@@ -21,21 +21,25 @@ UNIVERSAL_DOMAINS = ["Master/Governance", "Evaluation"]
 
 ROLE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
 
-ROLE_ALLOWED_TABLES = {
+ROLE_TABLE_POLICY_TABLE = "governance.role_table_permissions"
+
+FALLBACK_ROLE_ALLOWED_TABLES = {
     "COMPLIANCE_MANAGER": [
-        "silver.compliance_audit_logs",
+        "silver.legal_compliance_audit_log",
         "silver.legal_regulatory_documents",
         "governance.role_change_history",
     ],
     "CS_STAFF": [
-        "silver.customer_inquiries",
+        "silver.cs_customer_inquiries",
         "silver.voc_review_voc_insights",
-        "silver.cs_response_manuals",
     ],
     "EXECUTIVE": [
-        "gold.executive_kpi_summary",
-        "gold.company_strategy_brief",
-        "gold.investment_decision_summary",
+        "silver.fin_sales_summary",
+        "silver.fin_budget_plan",
+        "silver.fin_campaign_sales_attribution",
+        "silver.mkt_campaign_plan",
+        "silver.qa_qc_test_results",
+        "silver.rnd_product_master",
     ],
     "FINANCE_MANAGER": [
         "silver.fin_sales_summary",
@@ -48,17 +52,15 @@ ROLE_ALLOWED_TABLES = {
     ],
     "GENERAL_EMPLOYEE": [
         "silver.events",
-        "search.llm_table_context",
     ],
     "HR_MANAGER": [
-        "silver.hr_employee_master",
-        "silver.hr_performance_reviews",
-        "silver.hr_training_records",
+        "silver.employees",
+        "silver.departments",
+        "silver.hr_payroll_summary",
     ],
     "HR_STAFF": [
-        "silver.hr_employee_master",
-        "silver.hr_attendance_records",
-        "silver.hr_training_records",
+        "silver.employees",
+        "silver.departments",
     ],
     "IT_ADMIN": [
         "governance.rag_identity_map",
@@ -71,22 +73,24 @@ ROLE_ALLOWED_TABLES = {
     ],
     "MARKETING_STAFF": [
         "silver.events",
+        "silver.mkt_ad_copy_review",
         "silver.mkt_campaign_plan",
+        "silver.mkt_product_launch_calendar",
+        "silver.mkt_sns_performance",
         "silver.voc_review_voc_insights",
     ],
     "PAYROLL_MANAGER": [
+        "silver.employees",
         "silver.hr_payroll_summary",
-        "silver.compensation_adjustments",
     ],
     "PRODUCTION_MANAGER": [
+        "silver.mfg_batch_manufacturing_records",
         "silver.mfg_production_plan",
         "silver.mfg_work_orders",
-        "silver.equipment_logs",
     ],
     "PRODUCTION_STAFF": [
+        "silver.mfg_batch_manufacturing_records",
         "silver.mfg_work_orders",
-        "silver.batch_manufacturing_records",
-        "silver.equipment_logs",
     ],
     "QA_MANAGER": [
         "silver.qa_deviation_reports",
@@ -99,20 +103,20 @@ ROLE_ALLOWED_TABLES = {
     ],
     "QC_ANALYST": [
         "silver.qa_qc_test_results",
-        "silver.lims_test_records",
     ],
     "RA_MANAGER": [
-        "silver.ra_certification_documents",
-        "silver.regulatory_risk_register",
+        "silver.legal_privacy_policy_documents",
+        "silver.legal_regulatory_documents",
+        "silver.mkt_ad_copy_review",
     ],
     "RA_STAFF": [
-        "silver.ra_labeling_review",
+        "silver.legal_regulatory_documents",
         "silver.mkt_ad_copy_review",
     ],
     "RND_MANAGER": [
         "silver.rnd_product_master",
-        "silver.rnd_formula_records",
         "silver.rnd_product_improvement_actions",
+        "silver.qa_qc_test_results",
     ],
     "RND_RESEARCHER": [
         "silver.rnd_product_master",
@@ -120,18 +124,20 @@ ROLE_ALLOWED_TABLES = {
         "silver.qa_qc_test_results",
     ],
     "SCM_MANAGER": [
+        "silver.dist_channel_distribution_status",
+        "silver.dist_finished_goods_inventory",
+        "silver.scm_delivery_schedule",
+        "silver.scm_raw_material_inventory",
         "silver.scm_supplier_master",
-        "silver.inventory_policy",
-        "silver.distribution_schedule",
     ],
     "SCM_STAFF": [
-        "silver.purchase_orders",
-        "silver.inventory_transactions",
-        "silver.distribution_schedule",
+        "silver.scm_delivery_schedule",
+        "silver.scm_purchase_orders",
+        "silver.scm_raw_material_inventory",
     ],
     "TRAINING_MANAGER": [
-        "silver.training_completion_records",
-        "silver.employee_certifications",
+        "silver.departments",
+        "silver.employees",
     ],
 }
 
@@ -142,6 +148,16 @@ class WidgetInput:
     role_id: str
     rbac_enabled: bool
     post_check_enabled: bool
+
+
+@dataclass(frozen=True)
+class RoleTableAccess:
+    role_id: str
+    tables: set[str]
+    source: str
+    fallback_used: bool
+    missing_tables: list[str]
+    warnings: list[str]
 
 
 def validate_role_id(role_id: str | None, valid_role_ids: Collection[str] | None = None) -> str:
@@ -185,8 +201,88 @@ def list_role_ids(spark: Any, catalog: str = "cos_adb") -> list[str]:
 
 
 def get_role_allowed_tables(role_id: str, catalog: str = "cos_adb") -> set[str]:
-    table_suffixes = ROLE_ALLOWED_TABLES.get(role_id, [])
+    table_suffixes = FALLBACK_ROLE_ALLOWED_TABLES.get(role_id, [])
     return {f"{catalog}.{suffix}" for suffix in table_suffixes}
+
+
+def get_role_table_access(
+    spark: Any,
+    role_id: str,
+    valid_role_ids: Collection[str] | None = None,
+    catalog: str = "cos_adb",
+) -> RoleTableAccess:
+    role_id = validate_role_id(role_id, valid_role_ids)
+    warnings: list[str] = []
+    fallback_used = False
+
+    try:
+        rows = spark.sql(
+            f"""
+            SELECT table_fqn
+            FROM {catalog}.{ROLE_TABLE_POLICY_TABLE}
+            WHERE role_id = :role_id
+              AND COALESCE(is_active, true) = true
+            ORDER BY table_fqn
+            """,
+            args={"role_id": role_id},
+        ).collect()
+        tables = set()
+        for row in rows:
+            table_fqn = getattr(row, "table_fqn", None)
+            if table_fqn:
+                tables.add(str(table_fqn).strip())
+        source = f"{catalog}.{ROLE_TABLE_POLICY_TABLE}"
+        if not tables:
+            fallback_used = True
+            source = "fallback:FALLBACK_ROLE_ALLOWED_TABLES"
+            warnings.append("No active role_table_permissions rows; using repo fallback.")
+            tables = get_role_allowed_tables(role_id, catalog)
+    except Exception as error:
+        fallback_used = True
+        source = "fallback:FALLBACK_ROLE_ALLOWED_TABLES"
+        warnings.append(
+            f"{catalog}.{ROLE_TABLE_POLICY_TABLE} unavailable; using repo fallback ({error.__class__.__name__})."
+        )
+        tables = get_role_allowed_tables(role_id, catalog)
+
+    catalog_tables = _list_catalog_tables(spark, catalog, warnings)
+    missing_tables: list[str] = []
+    if catalog_tables is not None:
+        missing_tables = sorted(tables - catalog_tables)
+        tables = tables.intersection(catalog_tables)
+
+    return RoleTableAccess(
+        role_id=role_id,
+        tables=tables,
+        source=source,
+        fallback_used=fallback_used,
+        missing_tables=missing_tables,
+        warnings=warnings,
+    )
+
+
+def _list_catalog_tables(
+    spark: Any,
+    catalog: str,
+    warnings: list[str],
+) -> set[str] | None:
+    try:
+        rows = spark.sql(
+            f"""
+            SELECT CONCAT('{catalog}.', table_schema, '.', table_name) AS fqn
+            FROM {catalog}.information_schema.tables
+            WHERE table_schema != 'information_schema'
+            """
+        ).collect()
+    except Exception as error:
+        warnings.append(f"Catalog table validation skipped ({error.__class__.__name__}).")
+        return None
+    tables = set()
+    for row in rows:
+        fqn = getattr(row, "fqn", None)
+        if fqn:
+            tables.add(str(fqn).strip())
+    return tables
 
 
 def parse_widget_input(dbutils: Any) -> WidgetInput:

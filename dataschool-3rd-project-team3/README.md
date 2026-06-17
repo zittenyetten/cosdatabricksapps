@@ -81,9 +81,28 @@ sequenceDiagram
 | `cos_adb.search.metadata_chunks` | 벡터 인덱스 원천 테이블로 추정 |
 | `cos_adb.search.llm_table_context` | `table_id`, `layer`, `domain` 컨텍스트 매핑 |
 | `cos_adb.governance.access_policies` | `role_id`별 접근 가능한 시스템 목록 |
+| `cos_adb.governance.role_table_permissions` | 선택 리소스. 존재하면 role별 SQL 허용 테이블의 우선 source of truth |
 | `cos_adb.silver.roles` | role 목록 |
 | `cos_adb.governance.rag_sql_query_logs` | RAG SQL 질의 감사 로그 |
 | Databricks Model Serving endpoint | SQL 생성, 요약, intent 분류, Post-check |
+
+`role_table_permissions`가 없거나 해당 role의 active row가 없으면 repo의 `FALLBACK_ROLE_ALLOWED_TABLES`를 사용합니다. fallback도 `cos_adb.information_schema.tables`에 존재하는 테이블만 SQL validator에 전달됩니다.
+
+## cos_adb 메타데이터 감사
+
+Databricks 카탈로그를 변경하지 않는 read-only 감사입니다.
+
+```powershell
+cd C:\project3
+python dataschool-3rd-project-team3\scripts\audit_cos_adb_metadata.py --output C:\Users\NS\OneDrive\문서\3rd_dummy_project_dev_logs\cos_adb_audit_latest.json
+```
+
+확인 항목:
+
+- role별 effective table count가 0인지
+- repo fallback table이 실제 `cos_adb`에 존재하는지
+- `llm_table_context` 중 실제 table로 매핑되지 않는 `table_id`가 있는지
+- role table policy와 domain metadata가 얼마나 겹치는지
 
 ## 주요 설정
 

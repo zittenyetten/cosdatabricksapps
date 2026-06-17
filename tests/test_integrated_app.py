@@ -64,6 +64,17 @@ class FakeSqlClient:
                     SimpleNamespace(system_name="GROUPWARE"),
                 ]
             )
+        if "role_table_permissions" in query:
+            raise RuntimeError("policy table unavailable")
+        if "information_schema.tables" in query:
+            return FakeCollectResult(
+                [
+                    SimpleNamespace(fqn="cos_adb.silver.events"),
+                    SimpleNamespace(fqn="cos_adb.silver.mkt_campaign_plan"),
+                    SimpleNamespace(fqn="cos_adb.silver.voc_review_voc_insights"),
+                    SimpleNamespace(fqn="cos_adb.silver.hr_payroll_summary"),
+                ]
+            )
         return FakeCollectResult([])
 
 
@@ -150,6 +161,8 @@ def test_admin_rbac_debug_reports_effective_role_allowlist(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "cos_adb.silver.events" in payload["effective_allowed_tables"]
+    assert "cos_adb.silver.mkt_campaign_plan" in payload["effective_allowed_tables"]
+    assert payload["role_table_fallback_used"] is True
     assert "cos_adb.silver.hr_payroll_summary" not in payload["effective_allowed_tables"]
     assert payload["salary_subquery_probe"]["actual"] == "BLOCKED"
 
