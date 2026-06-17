@@ -56,8 +56,18 @@ class RagApiService:
         event_callback: EventCallback | None = None,
     ) -> dict[str, Any]:
         role_id = validate_role_id(role_id, self.role_ids)
+        rbac_enabled = _coerce_bool(rbac_enabled)
+        post_check = _coerce_bool(post_check)
         if event_callback is not None:
-            event_callback("accepted", {"role_id": role_id, "mode": mode})
+            event_callback(
+                "accepted",
+                {
+                    "role_id": role_id,
+                    "mode": mode,
+                    "rbac_enabled": rbac_enabled,
+                    "post_check": post_check,
+                },
+            )
         result = self.router.route_query(
             question,
             role_id=role_id,
@@ -118,7 +128,22 @@ def _post_check_status(result: dict[str, Any]) -> str:
         return "SKIPPED"
     if result.get("failure_reason") == "POST_CHECK_FAILED":
         return "BLOCKED"
+    if result.get("failure_reason") in {
+        "RBAC_DOMAIN_DENIED",
+        "NO_SEARCH_RESULT",
+        "SQL_VALIDATION_ERROR",
+        "SQL_EXECUTION_ERROR",
+    }:
+        return "SKIPPED"
     return "PASS"
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "off", "no", "n", ""}
+    return bool(value)
 
 
 def _extract_rows(data: Any) -> list[dict[str, Any]]:

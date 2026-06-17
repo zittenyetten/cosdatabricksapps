@@ -215,11 +215,19 @@ def execute_rag_chat(
         question=payload["query"],
         role_id=payload["role_id"],
         mode=payload.get("mode", "auto"),
-        rbac_enabled=payload.get("rbac_enabled", True),
-        post_check=payload.get("post_check_enabled", payload.get("post_check", True)),
+        rbac_enabled=coerce_bool(payload.get("rbac_enabled", True)),
+        post_check=coerce_bool(payload.get("post_check_enabled", payload.get("post_check", True))),
         top_k=top_k,
         event_callback=event_callback,
     )
+
+
+def coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "off", "no", "n", ""}
+    return bool(value)
 
 
 def format_rag_api_result(raw: dict[str, Any], payload: dict[str, Any], access: dict[str, Any]) -> dict:
@@ -240,7 +248,11 @@ def format_rag_api_result(raw: dict[str, Any], payload: dict[str, Any], access: 
         "blocked": blocked,
         "answer": raw.get("answer") or raw.get("response") or raw.get("summary") or "",
         "sources": sources,
-        "checks": raw_checks or build_check_result(body["rbac_enabled"], body["pre_check_enabled"], body["post_check_enabled"]),
+        "checks": raw_checks or build_check_result(
+            coerce_bool(payload.get("rbac_enabled", True)),
+            coerce_bool(payload.get("pre_check_enabled", True)),
+            coerce_bool(payload.get("post_check_enabled", payload.get("post_check", True))),
+        ),
         "sql_log": raw.get("sql_log") or raw.get("log") or normalize_api_sql_log(raw),
         "raw": raw,
     }

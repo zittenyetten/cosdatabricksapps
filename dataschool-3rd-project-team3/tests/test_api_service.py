@@ -49,3 +49,62 @@ def test_format_api_response_blocks_rows_on_denied() -> None:
     assert response["rows"] == []
     assert response["checks"]["pre_check"] == "BLOCKED"
 
+
+def test_format_api_response_marks_post_check_skipped() -> None:
+    result = {
+        "request_id": "req-1",
+        "mode": "WORK",
+        "status": "SUCCESS",
+        "summary": "answer",
+        "role": "GENERAL_EMPLOYEE",
+        "rbac_enabled": True,
+        "post_check": False,
+        "data": [],
+        "table_access": [],
+    }
+
+    response = format_api_response(result)
+
+    assert response["checks"]["post_check"] == "SKIPPED"
+
+
+def test_format_api_response_marks_post_check_blocked() -> None:
+    result = {
+        "request_id": "req-1",
+        "mode": "WORK",
+        "status": "DENIED",
+        "detail": "blocked by post-check",
+        "role": "GENERAL_EMPLOYEE",
+        "rbac_enabled": True,
+        "post_check": True,
+        "data": [{"secret": "x"}],
+        "table_access": [{"table": "cos_adb.silver.events", "result": "DENIED"}],
+        "failure_reason": "POST_CHECK_FAILED",
+    }
+
+    response = format_api_response(result)
+
+    assert response["blocked"] is True
+    assert response["rows"] == []
+    assert response["checks"]["post_check"] == "BLOCKED"
+
+
+def test_format_api_response_marks_post_check_skipped_before_execution() -> None:
+    result = {
+        "request_id": "req-1",
+        "mode": "WORK",
+        "status": "DENIED",
+        "detail": "Only SELECT queries are allowed",
+        "role": "GENERAL_EMPLOYEE",
+        "rbac_enabled": True,
+        "post_check": True,
+        "data": None,
+        "table_access": [{"table": "cos_adb.silver.events", "result": "DENIED"}],
+        "failure_reason": "SQL_VALIDATION_ERROR",
+        "execution_status": "BLOCKED",
+    }
+
+    response = format_api_response(result)
+
+    assert response["blocked"] is True
+    assert response["checks"]["post_check"] == "SKIPPED"

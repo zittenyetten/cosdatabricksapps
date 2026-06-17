@@ -6,9 +6,20 @@ from app import main
 
 
 class FakeRagService:
+    def __init__(self) -> None:
+        self.calls = []
+
     def chat(self, *, event_callback=None, **kwargs):
+        self.calls.append(kwargs)
         if event_callback is not None:
-            event_callback("accepted", {"role_id": kwargs["role_id"], "mode": kwargs["mode"]})
+            event_callback(
+                "accepted",
+                {
+                    "role_id": kwargs["role_id"],
+                    "mode": kwargs["mode"],
+                    "post_check": kwargs["post_check"],
+                },
+            )
             event_callback("intent", {"mode": "WORK"})
         return {
             "request_id": "req-1",
@@ -22,13 +33,19 @@ class FakeRagService:
             "rows": [{"value": 1}],
             "row_count": 1,
             "sources": {"tables": ["cos_adb.silver.events"], "documents": []},
-            "checks": {"rbac_enabled": True, "pre_check": "PASS", "post_check": "PASS"},
+            "checks": {
+                "rbac_enabled": True,
+                "pre_check": "PASS",
+                "post_check": "PASS" if kwargs["post_check"] else "SKIPPED",
+            },
             "raw": {},
         }
 
 
-def install_fake_service(monkeypatch) -> None:
-    monkeypatch.setattr(main, "get_rag_service", lambda: FakeRagService())
+def install_fake_service(monkeypatch) -> FakeRagService:
+    service = FakeRagService()
+    monkeypatch.setattr(main, "get_rag_service", lambda: service)
+    return service
 
 
 def test_app_imports_and_health() -> None:
@@ -127,3 +144,41 @@ def test_admin_stream_final_is_ui_shape(monkeypatch) -> None:
     assert final_payload["backend"] == "in_process_rag"
     assert final_payload["effective_identity"]["role_id"] == "QA_MANAGER"
 
+
+def test_admin_stream_respects_post_check_disabled(monkeypatch) -> None:
+    service = install_fake_service(monkeypatch)
+    client = TestClient(main.app)
+
+    with client.stream(
+        "POST",
+        "/api/admin/simulate/stream",
+        json={
+            "query": "/work show data",
+            "role_id": "QA_MANAGER",
+            "department_name": "QA",
+            "security_clearance": "RESTRICTED",
+            "post_check_enabled": False,
+        },
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    final_payload = json.loads(body.split("data: ")[-1].strip())
+    assert response.status_code == 200
+    assert service.calls[-1]["post_check"] is False
+    assert final_payload["checks"]["post_check"] == "SKIPPED"
+
+
+def test_execute_rag_chat_coerces_string_false_options(monkeypatch) -> None:
+    service = install_fake_service(monkeypatch)
+
+    main.execute_rag_chat(
+        {
+            "query": "/work show data",
+            "role_id": "QA_MANAGER",
+            "rbac_enabled": "false",
+            "post_check_enabled": "false",
+        }
+    )
+
+    assert service.calls[-1]["rbac_enabled"] is False
+    assert service.calls[-1]["post_check"] is False
