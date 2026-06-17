@@ -47,42 +47,6 @@ class FakeRagService:
         }
 
 
-class FakeAdminDemoService:
-    def __init__(self, response: dict | None = None) -> None:
-        self.calls = []
-        self.response = response
-
-    def run(self, payload: dict, *, event_callback=None):
-        self.calls.append(payload)
-        if event_callback is not None:
-            event_callback(
-                "accepted",
-                {
-                    "role_id": payload["role_id"],
-                    "mode": "admin_layered_demo",
-                    "post_check": payload.get("post_check_enabled", True),
-                },
-            )
-            event_callback("intent", {"mode": "WORK"})
-        if self.response is not None:
-            return self.response
-        return {
-            "request_id": "admin-demo-1",
-            "guard_status": "SUCCESS",
-            "answer_guard_status": "PASS" if payload.get("post_check_enabled", True) else "SKIPPED",
-            "blocked": False,
-            "answer": "admin demo ok",
-            "sources": {"tables": ["cos_adb.silver.events"], "documents": []},
-            "checks": {
-                "rbac_enabled": True,
-                "pre_check": "PASS",
-                "post_check": "PASS" if payload.get("post_check_enabled", True) else "SKIPPED",
-            },
-            "sql_log": {"generated_sql": "SELECT 1 LIMIT 20"},
-            "raw": {"candidate_sql": "SELECT 1 LIMIT 20"},
-        }
-
-
 class FakeCollectResult:
     def __init__(self, rows: list[object]) -> None:
         self.rows = rows
@@ -139,12 +103,6 @@ class FakeDebugRagService:
 def install_fake_service(monkeypatch, response: dict | None = None) -> FakeRagService:
     service = FakeRagService(response)
     monkeypatch.setattr(main, "get_rag_service", lambda: service)
-    return service
-
-
-def install_fake_admin_demo(monkeypatch, response: dict | None = None) -> FakeAdminDemoService:
-    service = FakeAdminDemoService(response)
-    monkeypatch.setattr(main, "get_admin_demo_service", lambda: service)
     return service
 
 
@@ -282,7 +240,7 @@ def test_public_chat_locks_role_and_guards_server_side(monkeypatch) -> None:
 
 
 def test_admin_simulation_locks_rbac_but_respects_post_check_toggle(monkeypatch) -> None:
-    service = install_fake_admin_demo(monkeypatch)
+    service = install_fake_service(monkeypatch)
     client = TestClient(main.app)
 
     response = client.post(
@@ -301,9 +259,8 @@ def test_admin_simulation_locks_rbac_but_respects_post_check_toggle(monkeypatch)
     assert response.status_code == 200
     assert service.calls[-1]["role_id"] == "QA_MANAGER"
     assert service.calls[-1]["rbac_enabled"] is True
-    assert service.calls[-1]["post_check_enabled"] is False
-    assert payload["security_mode"] == "admin_layered_demo"
-    assert payload["backend"] == "admin_layered_demo"
+    assert service.calls[-1]["post_check"] is False
+    assert payload["security_mode"] == "admin_rbac_locked_post_check_toggle"
 
 
 def test_v1_chat_locks_role_and_guards_server_side(monkeypatch) -> None:
@@ -344,7 +301,7 @@ def test_ui_stream_final_is_ui_shape(monkeypatch) -> None:
 
 
 def test_admin_stream_final_is_ui_shape(monkeypatch) -> None:
-    install_fake_admin_demo(monkeypatch)
+    install_fake_service(monkeypatch)
     client = TestClient(main.app)
 
     with client.stream(
@@ -361,12 +318,12 @@ def test_admin_stream_final_is_ui_shape(monkeypatch) -> None:
 
     final_payload = json.loads(body.split("data: ")[-1].strip())
     assert response.status_code == 200
-    assert final_payload["backend"] == "admin_layered_demo"
+    assert final_payload["backend"] == "in_process_rag"
     assert final_payload["effective_identity"]["role_id"] == "QA_MANAGER"
 
 
 def test_admin_stream_respects_post_check_disabled(monkeypatch) -> None:
-    service = install_fake_admin_demo(monkeypatch)
+    service = install_fake_service(monkeypatch)
     client = TestClient(main.app)
 
     with client.stream(
@@ -384,7 +341,7 @@ def test_admin_stream_respects_post_check_disabled(monkeypatch) -> None:
 
     final_payload = json.loads(body.split("data: ")[-1].strip())
     assert response.status_code == 200
-    assert service.calls[-1]["post_check_enabled"] is False
+    assert service.calls[-1]["post_check"] is False
     assert final_payload["checks"]["post_check"] == "SKIPPED"
 
 
@@ -422,7 +379,7 @@ def test_public_chat_redacts_internal_table_names(monkeypatch) -> None:
 
 
 def test_admin_simulation_keeps_internal_table_names(monkeypatch) -> None:
-    install_fake_admin_demo(monkeypatch, blocked_table_response())
+    install_fake_service(monkeypatch, blocked_table_response())
     client = TestClient(main.app)
 
     response = client.post(

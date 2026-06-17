@@ -21,7 +21,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from app.admin_demo_service import AdminLayeredDemoService
 import rbac_rag.engine as rag_engine_module
 import rbac_rag.rbac as rbac_module
 import rbac_rag.sql_validator as sql_validator_module
@@ -38,7 +37,7 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "admin-layered-demo-2026-06-17"
+APP_BUILD_ID = "admin-postcheck-toggle-2026-06-17"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -127,10 +126,6 @@ def get_rag_service() -> RagApiService:
     return RagApiService()
 
 
-def get_admin_demo_service() -> AdminLayeredDemoService:
-    return AdminLayeredDemoService(get_rag_service())
-
-
 def databricks_configured() -> bool:
     has_host = bool(os.getenv("DATABRICKS_SERVER_HOSTNAME") or os.getenv("DATABRICKS_HOST"))
     has_sql_compute = bool(os.getenv("DATABRICKS_HTTP_PATH") or os.getenv("DATABRICKS_WAREHOUSE_ID"))
@@ -185,7 +180,6 @@ def build_info() -> dict[str, Any]:
             "sensitive_table_role_guard",
             "answer_summary_result_guard",
             "admin_post_check_toggle",
-            "admin_layered_demo_pipeline",
         ],
     }
 
@@ -371,7 +365,7 @@ def secure_request_payload(payload: dict[str, Any], mode: str) -> dict[str, Any]
         secured["post_check_enabled"] = coerce_bool(
             secured.get("post_check_enabled", secured.get("post_check", True))
         )
-        secured["security_mode"] = "admin_layered_demo"
+        secured["security_mode"] = "admin_rbac_locked_post_check_toggle"
         return secured
 
     return secured
@@ -497,20 +491,6 @@ def call_in_process_rag(payload: dict[str, Any], access: dict[str, Any]) -> dict
         return build_error_result(payload, f"RAG request rejected: {safe_error(exc)}")
     except Exception as exc:
         return build_error_result(payload, f"RAG execution failed: {safe_error(exc)}")
-
-
-def call_admin_layered_demo(
-    payload: dict[str, Any],
-    access: dict[str, Any],
-    *,
-    event_callback=None,
-) -> dict:
-    try:
-        return get_admin_demo_service().run(payload, event_callback=event_callback)
-    except ValueError as exc:
-        return build_error_result(payload, f"Admin demo request rejected: {safe_error(exc)}")
-    except Exception as exc:
-        return build_error_result(payload, f"Admin demo execution failed: {safe_error(exc)}")
 
 
 def build_error_result(payload: dict[str, Any], message: str) -> dict:
@@ -799,12 +779,8 @@ def log_ui_response(response: dict[str, Any], mode: str, backend: str) -> None:
 def answer_payload(payload: dict[str, Any], mode: str) -> dict:
     payload = secure_request_payload(payload, mode)
     access = ROLE_ACCESS.get(payload["role_id"], ROLE_ACCESS["GENERAL_EMPLOYEE"])
-    backend = "admin_layered_demo" if mode == "admin_simulation" else "in_process_rag"
-    result = (
-        call_admin_layered_demo(payload, access)
-        if mode == "admin_simulation"
-        else call_in_process_rag(payload, access)
-    )
+    backend = "in_process_rag"
+    result = call_in_process_rag(payload, access)
     response = build_ui_response(result, payload, access, mode, backend=backend)
     log_ui_response(response, mode, backend)
     remember_live_result(response, payload, access)
@@ -875,15 +851,8 @@ def ui_stream_response(payload: dict[str, Any], mode: str) -> EventSourceRespons
             loop.call_soon_threadsafe(queue.put_nowait, (event, event_payload))
 
         def run_chat() -> dict[str, Any]:
-            result = (
-                call_admin_layered_demo(payload, access, event_callback=emit)
-                if mode == "admin_simulation"
-                else format_rag_api_result(
-                    execute_rag_chat(payload, event_callback=emit),
-                    payload,
-                    access,
-                )
-            )
+            raw = execute_rag_chat(payload, event_callback=emit)
+            result = format_rag_api_result(raw, payload, access)
             return build_ui_response(result, payload, access, mode)
 
         task = asyncio.create_task(asyncio.to_thread(run_chat))
@@ -895,9 +864,7 @@ def ui_stream_response(payload: dict[str, Any], mode: str) -> EventSourceRespons
                 except asyncio.TimeoutError:
                     continue
             response = await task
-            backend = "admin_layered_demo" if mode == "admin_simulation" else "in_process_rag"
-            response["backend"] = backend
-            log_ui_response(response, mode, backend)
+            log_ui_response(response, mode, "in_process_rag")
             remember_live_result(response, payload, access)
             final_response = redact_public_response(response) if mode == "user" else response
             yield sse_event("final", final_response)
