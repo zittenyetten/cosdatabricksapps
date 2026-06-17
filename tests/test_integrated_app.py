@@ -3,6 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from app import main
+from rbac_rag.rbac import get_role_allowed_tables
 
 
 class FakeRagService:
@@ -264,3 +265,8 @@ def test_public_chat_stream_redacts_internal_table_names(monkeypatch) -> None:
     assert response.status_code == 200
     assert "cos_adb" not in final_payload["answer"]
     assert final_payload["raw"] == {"redacted": True}
+
+
+def test_ui_role_tables_match_engine_role_allowlist() -> None:
+    for role_id, access in main.ROLE_ACCESS.items():
+        assert get_role_allowed_tables(role_id, "cos_adb") == set(access["tables"])
