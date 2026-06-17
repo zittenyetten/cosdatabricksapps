@@ -116,13 +116,14 @@ def get_rag_service() -> RagApiService:
 
 def databricks_configured() -> bool:
     has_host = bool(os.getenv("DATABRICKS_SERVER_HOSTNAME") or os.getenv("DATABRICKS_HOST"))
+    has_sql_compute = bool(os.getenv("DATABRICKS_HTTP_PATH") or os.getenv("DATABRICKS_WAREHOUSE_ID"))
     has_credentials = bool(
         (os.getenv("DATABRICKS_CLIENT_ID") and os.getenv("DATABRICKS_CLIENT_SECRET"))
         or os.getenv("DATABRICKS_TOKEN")
     )
     return bool(
         has_host
-        and os.getenv("DATABRICKS_HTTP_PATH")
+        and has_sql_compute
         and has_credentials
     )
 

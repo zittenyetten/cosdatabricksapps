@@ -5,3 +5,18 @@ command:
   - 0.0.0.0
   - --port
   - "$DATABRICKS_APP_PORT"
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: RBAC_RAG_CATALOG
+    value: cos_adb
+  - name: RBAC_RAG_LOG_TABLE
+    value: cos_adb.governance.rag_sql_query_logs
+  - name: RBAC_RAG_VS_INDEX_NAME
+    value: cos_adb.search.metadata_chunks_index
+  - name: RBAC_RAG_VS_ENDPOINT_NAME
+    value: cos-rag-endpoint
+  - name: RBAC_RAG_LLM_MODEL
+    value: databricks-qwen3-next-80b-a3b-instruct
+  - name: RBAC_RAG_TOP_K_DEFAULT
+    value: "5"

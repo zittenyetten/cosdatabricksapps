@@ -84,14 +84,14 @@ class DatabricksSqlConfig:
         server_hostname = os.getenv("DATABRICKS_SERVER_HOSTNAME") or _host_to_server_hostname(
             os.getenv("DATABRICKS_HOST", "")
         )
-        http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+        http_path = _http_path_from_env()
         access_token = os.getenv("DATABRICKS_TOKEN")
         client_id = os.getenv("DATABRICKS_CLIENT_ID")
         client_secret = os.getenv("DATABRICKS_CLIENT_SECRET")
         if not server_hostname:
             raise ValueError("DATABRICKS_SERVER_HOSTNAME or DATABRICKS_HOST is required")
         if not http_path:
-            raise ValueError("DATABRICKS_HTTP_PATH is required")
+            raise ValueError("DATABRICKS_HTTP_PATH or DATABRICKS_WAREHOUSE_ID is required")
         if not ((client_id and client_secret) or access_token):
             raise ValueError(
                 "DATABRICKS_CLIENT_ID/DATABRICKS_CLIENT_SECRET or DATABRICKS_TOKEN is required"
@@ -106,6 +106,14 @@ class DatabricksSqlConfig:
 
 def _host_to_server_hostname(host: str) -> str:
     return host.replace("https://", "").replace("http://", "").strip("/")
+
+
+def _http_path_from_env() -> str:
+    http_path = os.getenv("DATABRICKS_HTTP_PATH", "").strip()
+    if http_path:
+        return http_path
+    warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "").strip()
+    return f"/sql/1.0/warehouses/{warehouse_id}" if warehouse_id else ""
 
 
 def _oauth_credentials_provider(server_hostname: str):

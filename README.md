@@ -32,11 +32,11 @@ Databricks 연결에는 아래 값이 필요합니다.
 
 - `DATABRICKS_HOST`
 - `DATABRICKS_SERVER_HOSTNAME`
-- `DATABRICKS_HTTP_PATH`
+- `DATABRICKS_WAREHOUSE_ID` or `DATABRICKS_HTTP_PATH`
 - `DATABRICKS_CLIENT_ID`
 - `DATABRICKS_CLIENT_SECRET`
 
-Databricks Apps 운영에서는 `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`가 앱 런타임에 주입됩니다. GitHub에는 `.env`, PAT, OAuth secret, token 값을 올리지 않습니다.
+Databricks Apps 운영에서는 `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`가 앱 런타임에 주입됩니다. `app.yaml`은 SQL warehouse resource key `sql-warehouse`를 `DATABRICKS_WAREHOUSE_ID`로 연결합니다. GitHub에는 `.env`, PAT, OAuth secret, token 값을 올리지 않습니다.
 
 로컬 개발에서만 `DATABRICKS_TOKEN` PAT fallback을 사용할 수 있습니다. 토큰 값은 터미널, 로그, 문서에 출력하지 않습니다.
 

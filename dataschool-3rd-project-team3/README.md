@@ -135,11 +135,11 @@ copy .env.example .env
 
 - `DATABRICKS_HOST`
 - `DATABRICKS_SERVER_HOSTNAME`
-- `DATABRICKS_HTTP_PATH`
+- `DATABRICKS_WAREHOUSE_ID` or `DATABRICKS_HTTP_PATH`
 - `DATABRICKS_CLIENT_ID`
 - `DATABRICKS_CLIENT_SECRET`
 
-로컬 개발에서는 `DATABRICKS_TOKEN` PAT fallback도 사용할 수 있지만, Databricks Apps 운영 배포에서는 앱 런타임이 주입하는 OAuth credential을 우선 사용합니다. PAT, OAuth secret, `.env` 실제 값은 GitHub에 올리지 않습니다.
+Databricks Apps에서는 `app.yaml`의 `valueFrom: sql-warehouse`가 `DATABRICKS_WAREHOUSE_ID`를 주입하고, 코드는 이를 `/sql/1.0/warehouses/{warehouse_id}` HTTP path로 변환합니다. 로컬 개발에서는 `DATABRICKS_TOKEN` PAT fallback도 사용할 수 있지만, Databricks Apps 운영 배포에서는 앱 런타임이 주입하는 OAuth credential을 우선 사용합니다. PAT, OAuth secret, `.env` 실제 값은 GitHub에 올리지 않습니다.
 
 standalone 서버 실행:
 

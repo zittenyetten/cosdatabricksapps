@@ -58,7 +58,7 @@ Databricks Connect를 선택하면 `databricks-connect`가 추가됩니다. 단,
 ```powershell
 $env:DATABRICKS_HOST = "https://<workspace-host>"
 $env:DATABRICKS_SERVER_HOSTNAME = "<workspace-host-without-scheme>"
-$env:DATABRICKS_HTTP_PATH = "/sql/1.0/warehouses/<warehouse-id>"
+$env:DATABRICKS_WAREHOUSE_ID = "<warehouse-id>"
 $env:DATABRICKS_CLIENT_ID = "<app-or-service-principal-client-id>"
 $env:RBAC_RAG_LLM_MODEL = "databricks-qwen3-next-80b-a3b-instruct"
 $env:RBAC_RAG_VS_INDEX_NAME = "cos_adb.search.metadata_chunks_index"

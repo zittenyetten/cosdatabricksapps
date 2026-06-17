@@ -32,7 +32,7 @@ def test_check_env_file_detects_placeholders(tmp_path) -> None:
 
     assert ok is False
     assert rows[2]["placeholder"] is True
-    assert rows[5]["value"] == "<set:12 chars>"
+    assert rows[6]["value"] == "<set:12 chars>"
 
 
 def test_check_env_file_accepts_oauth_without_pat(tmp_path) -> None:
@@ -56,3 +56,24 @@ def test_check_env_file_accepts_oauth_without_pat(tmp_path) -> None:
     assert ok is True
     secret_row = next(row for row in rows if row["key"] == "DATABRICKS_CLIENT_SECRET")
     assert secret_row["value"] == "<set:13 chars>"
+
+
+def test_check_env_file_accepts_warehouse_id_without_http_path(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    secret_key = "DATABRICKS_CLIENT_SECRET"
+    env_file.write_text(
+        "\n".join(
+            [
+                "DATABRICKS_HOST=https://adb.example.databricks.net",
+                "DATABRICKS_SERVER_HOSTNAME=adb.example.databricks.net",
+                "DATABRICKS_WAREHOUSE_ID=abc",
+                "DATABRICKS_CLIENT_ID=client-id",
+                f"{secret_key}=client-secret",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    _, ok = check_env_file(env_file)
+
+    assert ok is True

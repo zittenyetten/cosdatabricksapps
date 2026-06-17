@@ -4,7 +4,11 @@ from pathlib import Path
 REQUIRED_DATABRICKS_KEYS = [
     "DATABRICKS_HOST",
     "DATABRICKS_SERVER_HOSTNAME",
-    "DATABRICKS_HTTP_PATH",
+]
+
+SQL_COMPUTE_GROUPS = [
+    ("HTTP path", ["DATABRICKS_HTTP_PATH"]),
+    ("SQL warehouse resource", ["DATABRICKS_WAREHOUSE_ID"]),
 ]
 
 AUTH_GROUPS = [
@@ -43,7 +47,11 @@ def check_env_file(path: str | Path) -> tuple[list[dict[str, str | bool]], bool]
     rows: list[dict[str, str | bool]] = []
     ok = True
 
-    for key in REQUIRED_DATABRICKS_KEYS + [key for _, keys in AUTH_GROUPS for key in keys]:
+    for key in (
+        REQUIRED_DATABRICKS_KEYS
+        + [key for _, keys in SQL_COMPUTE_GROUPS for key in keys]
+        + [key for _, keys in AUTH_GROUPS for key in keys]
+    ):
         value = values.get(key, "")
         present = bool(value)
         placeholder = "<" in value or ">" in value
@@ -62,6 +70,15 @@ def check_env_file(path: str | Path) -> tuple[list[dict[str, str | bool]], bool]
         bool(values.get(key, "")) and "<" not in values.get(key, "") and ">" not in values.get(key, "")
         for key in REQUIRED_DATABRICKS_KEYS
     )
+    sql_compute_ok = any(
+        all(
+            bool(values.get(key, ""))
+            and "<" not in values.get(key, "")
+            and ">" not in values.get(key, "")
+            for key in keys
+        )
+        for _, keys in SQL_COMPUTE_GROUPS
+    )
     auth_ok = any(
         all(
             bool(values.get(key, ""))
@@ -71,5 +88,5 @@ def check_env_file(path: str | Path) -> tuple[list[dict[str, str | bool]], bool]
         )
         for _, keys in AUTH_GROUPS
     )
-    ok = required_ok and auth_ok
+    ok = required_ok and sql_compute_ok and auth_ok
     return rows, ok
