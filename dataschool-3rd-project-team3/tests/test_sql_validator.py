@@ -3,6 +3,7 @@ import pytest
 from rbac_rag.sql_validator import (
     SqlValidationError,
     build_safe_projection_sql,
+    validate_basic_select_sql,
     validate_select_sql,
 )
 
@@ -56,6 +57,30 @@ def test_validate_select_sql_rejects_non_allowed_table_in_subquery() -> None:
             """,
             {"cos_adb.silver.events"},
         )
+
+
+def test_validate_basic_select_sql_allows_non_allowed_table_for_admin_demo() -> None:
+    result = validate_basic_select_sql(
+        """
+        SELECT e.event_id,
+               (SELECT p.base_salary
+                FROM cos_adb.silver.hr_payroll_summary p
+                WHERE p.employee_id = e.owner_employee_id
+                LIMIT 1) AS amt
+        FROM cos_adb.silver.events e
+        LIMIT 20
+        """
+    )
+
+    assert result.tables == [
+        "cos_adb.silver.events",
+        "cos_adb.silver.hr_payroll_summary",
+    ]
+
+
+def test_validate_basic_select_sql_still_rejects_dml() -> None:
+    with pytest.raises(SqlValidationError):
+        validate_basic_select_sql("DELETE FROM cos_adb.silver.events")
 
 
 def test_validate_select_sql_rejects_unknown_column() -> None:

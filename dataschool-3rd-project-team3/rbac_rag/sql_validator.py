@@ -156,6 +156,46 @@ def validate_select_sql(
     return SqlValidationResult(sql=normalized, tables=tables)
 
 
+def validate_basic_select_sql(
+    sql: str,
+    *,
+    max_rows: int = 20,
+) -> SqlValidationResult:
+    """Validate only baseline SQL safety, without RBAC table allowlist checks.
+
+    This is used by the admin demo path where Post-check OFF intentionally
+    demonstrates vulnerable table access. Production paths must use
+    validate_select_sql().
+    """
+    normalized = sql.strip().rstrip(";").strip()
+    if not normalized:
+        raise SqlValidationError("SQL is empty")
+
+    if ";" in normalized:
+        raise SqlValidationError("Multiple SQL statements are not allowed")
+
+    first_token = normalized.split(None, 1)[0].lower()
+    if first_token not in {"select", "with"}:
+        raise SqlValidationError("Only SELECT queries are allowed")
+
+    if BLOCKED_KEYWORDS.search(normalized):
+        raise SqlValidationError("Blocked SQL keyword detected")
+
+    tables = extract_sql_tables(normalized)
+    if not tables:
+        raise SqlValidationError("SQL must reference at least one table")
+
+    limit_match = LIMIT_PATTERN.search(normalized)
+    if limit_match:
+        requested_limit = int(limit_match.group(1))
+        if requested_limit > max_rows:
+            normalized = normalized[: limit_match.start()].rstrip() + f" LIMIT {max_rows}"
+    else:
+        normalized = f"{normalized} LIMIT {max_rows}"
+
+    return SqlValidationResult(sql=normalized, tables=tables)
+
+
 def build_safe_projection_sql(
     sql: str,
     allowed_tables: set[str],
