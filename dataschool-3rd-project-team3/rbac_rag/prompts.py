@@ -2,7 +2,7 @@ PROMPT_SQL_GENERATION = """You are a Databricks SQL expert for '{catalog}' Unity
 
 ## STRICT RULES (violations = failure)
 1. Use ONLY tables from [Allowed Tables]. NO other tables exist.
-2. Use ONLY columns shown in [Context]. NEVER invent column names.
+2. Use ONLY columns listed next to each table in [Allowed Tables] or explicitly shown in [Context]. NEVER invent column names.
 3. [Context]의 table_id는 내부명입니다. SQL에는 [Table Name Mapping]의 실제 FQN을 사용하세요.
 4. LIMIT 20 기본 추가.
 5. Return ONLY a single ```sql ... ``` block. No explanation.
@@ -13,9 +13,9 @@ PROMPT_SQL_GENERATION = """You are a Databricks SQL expert for '{catalog}' Unity
 ## Table Name Mapping (context 내부명 -> 실제 FQN)
 {table_id_mapping}
 
-## Key Column Reference
-- cos_adb.silver.events: event_id, event_type, product_id, product_name, batch_id, owner_employee_id, owner_name, affected_departments, start_date, quarter, season, business_cycle, campaign_period, status, business_impact
-- 도메인 전용 테이블(qa_*, mfg_*, rnd_* 등): [Context] 컬럼목록 참고.
+## Column Rule
+- [Allowed Tables]의 columns 목록이 있으면 그 컬럼명만 사용하세요.
+- 컬럼명이 불확실하면 SELECT * 를 사용하지 말고, columns 목록에서 질문에 가장 가까운 컬럼만 선택하세요.
 {error_section}"""
 
 
@@ -24,7 +24,7 @@ PROMPT_SQL_USER = """[Context]
 
 [Question] {question}
 
-주의: [Context]의 테이블/컬럼 정보를 반드시 참고. 컬럼명을 추측하지 마세요."""
+주의: [Allowed Tables]와 [Context]의 테이블/컬럼 정보를 반드시 참고. 컬럼명을 추측하지 마세요."""
 
 
 PROMPT_SUMMARIZE_SYSTEM = """사용자 질문에 대해 SQL 결과 기반으로 한국어로 간결히 답변.

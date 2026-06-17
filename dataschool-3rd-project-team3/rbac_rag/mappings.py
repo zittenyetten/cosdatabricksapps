@@ -7,6 +7,7 @@ class TableMappings:
     catalog: str
     table_rows: list[Any]
     context_rows: list[Any]
+    table_columns: dict[str, list[str]]
     domain_to_tables: dict[str, set[str]]
     table_id_to_fqn: dict[str, str]
 
@@ -22,9 +23,15 @@ class TableMappings:
         context_rows = spark.sql(
             f"SELECT table_id, layer, domain FROM {catalog}.search.llm_table_context"
         ).collect()
+        column_rows = _load_column_rows(spark, catalog)
 
         domain_to_tables: dict[str, set[str]] = {}
         table_id_to_fqn: dict[str, str] = {}
+        table_columns: dict[str, list[str]] = {}
+
+        for column in column_rows:
+            fqn = f"{catalog}.{column.table_schema}.{column.table_name}"
+            table_columns.setdefault(fqn, []).append(column.column_name)
 
         for ctx in context_rows:
             last_part = ctx.table_id.split("__")[-1]
@@ -40,12 +47,13 @@ class TableMappings:
             catalog=catalog,
             table_rows=table_rows,
             context_rows=context_rows,
+            table_columns=table_columns,
             domain_to_tables=domain_to_tables,
             table_id_to_fqn=table_id_to_fqn,
         )
 
     def get_allowed_table_list(self, domains: list[str]) -> str:
-        return "\n".join(f"  - {table}" for table in sorted(self.get_allowed_tables(domains)))
+        return "\n".join(self._format_table_entry(table) for table in sorted(self.get_allowed_tables(domains)))
 
     def get_allowed_tables(self, domains: list[str]) -> set[str]:
         tables: set[str] = set()
@@ -64,10 +72,30 @@ class TableMappings:
         )
 
     def get_all_table_list(self) -> str:
-        return "\n".join(f"  - {row.fqn}" for row in self.table_rows)
+        return "\n".join(self._format_table_entry(row.fqn) for row in self.table_rows)
 
     def get_all_tables(self) -> set[str]:
         return {row.fqn for row in self.table_rows}
 
     def get_all_domains(self) -> list[str]:
         return sorted(self.domain_to_tables.keys())
+
+    def _format_table_entry(self, table: str) -> str:
+        columns = self.table_columns.get(table, [])
+        if not columns:
+            return f"  - {table}"
+        return f"  - {table} (columns: {', '.join(columns)})"
+
+
+def _load_column_rows(spark: Any, catalog: str) -> list[Any]:
+    try:
+        return spark.sql(
+            f"""
+            SELECT table_schema, table_name, column_name, ordinal_position
+            FROM {catalog}.information_schema.columns
+            WHERE table_schema != 'information_schema'
+            ORDER BY table_schema, table_name, ordinal_position
+            """
+        ).collect()
+    except Exception:
+        return []
