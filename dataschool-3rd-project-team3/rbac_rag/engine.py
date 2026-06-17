@@ -8,7 +8,11 @@ from .mappings import TableMappings
 from .prompts import MSG_ACCESS_DENIED
 from .rbac import UNIVERSAL_DOMAINS, get_allowed_domains, validate_role_id
 from .settings import RagSettings
-from .sql_validator import SqlValidationError, validate_select_sql
+from .sql_validator import (
+    SqlValidationError,
+    build_safe_projection_sql,
+    validate_select_sql,
+)
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
@@ -198,12 +202,33 @@ class RagEngine:
             try:
                 sql = generate_validated_sql(error_msg=str(error))
             except SqlValidationError as retry_error:
-                self._set_sql_validation_error(output, searched, str(retry_error), use_rbac)
-                _emit(event_callback, "sql_validation", status="BLOCKED", detail=output["detail"])
-                self._save_log(output, event_callback)
-                if verbose:
-                    print(format_output(output))
-                return output
+                fallback_sql = build_safe_projection_sql(
+                    output.get("sql") or "",
+                    allowed_table_set,
+                    table_columns,
+                )
+                if fallback_sql:
+                    validation = validate_select_sql(
+                        fallback_sql,
+                        allowed_table_set,
+                        table_columns=table_columns,
+                    )
+                    sql = validation.sql
+                    output["sql"] = sql
+                    _emit(
+                        event_callback,
+                        "sql_validation",
+                        status="PASS",
+                        tables=validation.tables,
+                        fallback=True,
+                    )
+                else:
+                    self._set_sql_validation_error(output, searched, str(retry_error), use_rbac)
+                    _emit(event_callback, "sql_validation", status="BLOCKED", detail=output["detail"])
+                    self._save_log(output, event_callback)
+                    if verbose:
+                        print(format_output(output))
+                    return output
 
         query_started = time.perf_counter()
         for attempt in range(2):
@@ -338,11 +363,14 @@ class RagEngine:
             }
             for table in searched
         ]
-        output["status"] = "DENIED"
+        column_error = detail.startswith("SQL references unavailable columns:")
+        output["status"] = "ERROR" if column_error else "DENIED"
         output["detail"] = detail
-        output["execution_status"] = "BLOCKED"
-        output["permission_check"] = "DENY" if use_rbac else None
-        output["failure_reason"] = "SQL_VALIDATION_ERROR"
+        output["execution_status"] = "FAILED" if column_error else "BLOCKED"
+        output["permission_check"] = "ALLOW" if column_error and use_rbac else "DENY" if use_rbac else None
+        output["failure_reason"] = (
+            "SQL_COLUMN_VALIDATION_ERROR" if column_error else "SQL_VALIDATION_ERROR"
+        )
         output["row_count_returned"] = 0
 
     def _save_log(

@@ -108,3 +108,27 @@ def test_format_api_response_marks_post_check_skipped_before_execution() -> None
 
     assert response["blocked"] is True
     assert response["checks"]["post_check"] == "SKIPPED"
+
+
+def test_format_api_response_hides_internal_column_validation_detail() -> None:
+    result = {
+        "request_id": "req-1",
+        "mode": "WORK",
+        "status": "ERROR",
+        "detail": "SQL references unavailable columns: manual_id. Use only these columns: record_id",
+        "role": "CS_STAFF",
+        "rbac_enabled": True,
+        "post_check": True,
+        "data": None,
+        "table_access": [{"table": "cos_adb.silver.cs_response_manuals", "result": "ERROR"}],
+        "failure_reason": "SQL_COLUMN_VALIDATION_ERROR",
+        "execution_status": "FAILED",
+    }
+
+    response = format_api_response(result)
+
+    assert response["status"] == "ERROR"
+    assert "manual_id" not in response["answer"]
+    assert "실제 컬럼 구조" in response["answer"]
+    assert "manual_id" in response["raw"]["detail"]
+    assert response["checks"]["post_check"] == "SKIPPED"

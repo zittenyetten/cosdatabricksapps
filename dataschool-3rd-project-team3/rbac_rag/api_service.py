@@ -93,10 +93,7 @@ def format_api_response(result: dict[str, Any], *, requested_role_id: str | None
         if isinstance(item, dict) and item.get("result") not in {"DENIED", "BLOCKED"}
     ]
 
-    if mode == "CHAT":
-        answer = result.get("answer") or result.get("summary") or ""
-    else:
-        answer = result.get("summary") or result.get("detail") or result.get("answer") or ""
+    answer = _response_answer(result, mode)
 
     response = {
         "request_id": result.get("request_id"),
@@ -132,10 +129,22 @@ def _post_check_status(result: dict[str, Any]) -> str:
         "RBAC_DOMAIN_DENIED",
         "NO_SEARCH_RESULT",
         "SQL_VALIDATION_ERROR",
+        "SQL_COLUMN_VALIDATION_ERROR",
         "SQL_EXECUTION_ERROR",
     }:
         return "SKIPPED"
     return "PASS"
+
+
+def _response_answer(result: dict[str, Any], mode: str) -> str:
+    if result.get("failure_reason") == "SQL_COLUMN_VALIDATION_ERROR":
+        return (
+            "질문과 관련된 테이블은 찾았지만, 생성된 SQL이 실제 컬럼 구조와 맞지 않아 "
+            "조회하지 못했습니다. 질문을 조금 더 구체적으로 다시 입력해 주세요."
+        )
+    if mode == "CHAT":
+        return result.get("answer") or result.get("summary") or ""
+    return result.get("summary") or result.get("detail") or result.get("answer") or ""
 
 
 def _coerce_bool(value: Any) -> bool:

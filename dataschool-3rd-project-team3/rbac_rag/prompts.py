@@ -16,6 +16,7 @@ PROMPT_SQL_GENERATION = """You are a Databricks SQL expert for '{catalog}' Unity
 ## Column Rule
 - [Allowed Tables]의 columns 목록이 있으면 그 컬럼명만 사용하세요.
 - 컬럼명이 불확실하면 SELECT * 를 사용하지 말고, columns 목록에서 질문에 가장 가까운 컬럼만 선택하세요.
+- PREVIOUS ERROR에 unavailable columns가 있으면 그 컬럼명은 절대 반복하지 말고, 제시된 실제 컬럼으로 바꿔 생성하세요.
 {error_section}"""
 
 

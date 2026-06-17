@@ -93,6 +93,15 @@ SQL_KEYWORDS = {
     "where",
     "year",
 }
+METADATA_COLUMNS = {
+    "allowed_roles",
+    "classification",
+    "contains_personal_data",
+    "contains_sensitive_data",
+    "contains_trade_secret",
+    "source_table",
+    "system_name",
+}
 
 
 def normalize_table_name(table: str) -> str:
@@ -145,6 +154,42 @@ def validate_select_sql(
         normalized = f"{normalized} LIMIT {max_rows}"
 
     return SqlValidationResult(sql=normalized, tables=tables)
+
+
+def build_safe_projection_sql(
+    sql: str,
+    allowed_tables: set[str],
+    table_columns: dict[str, list[str]],
+    *,
+    max_columns: int = 8,
+    max_rows: int = 20,
+) -> str | None:
+    tables = extract_sql_tables(sql)
+    if len(tables) != 1:
+        return None
+
+    allowed_normalized = {
+        normalize_table_name(table): table
+        for table in allowed_tables
+    }
+    table = tables[0]
+    if table not in allowed_normalized:
+        return None
+
+    columns_by_table = {
+        normalize_table_name(table_name): columns
+        for table_name, columns in table_columns.items()
+    }
+    columns = columns_by_table.get(table)
+    if not columns:
+        return None
+
+    projection = _safe_projection_columns(columns, max_columns)
+    if not projection:
+        return None
+
+    column_sql = ", ".join(_quote_identifier(column) for column in projection)
+    return f"SELECT {column_sql} FROM {allowed_normalized[table]} LIMIT {max_rows}"
 
 
 def _validate_columns(
@@ -210,6 +255,23 @@ def _validate_columns(
             f"SQL references unavailable columns: {invalid_list}. "
             f"Use only these columns for referenced tables: {available}"
         )
+
+
+def _safe_projection_columns(columns: list[str], max_columns: int) -> list[str]:
+    business_columns = [
+        column
+        for column in columns
+        if not column.startswith("_")
+        and not column.lower().startswith("contains_")
+        and column.lower() not in METADATA_COLUMNS
+    ]
+    return (business_columns or columns)[:max_columns]
+
+
+def _quote_identifier(identifier: str) -> str:
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", identifier):
+        return identifier
+    return f"`{identifier.replace('`', '``')}`"
 
 
 def _extract_table_aliases(sql: str, tables: list[str]) -> dict[str, str]:

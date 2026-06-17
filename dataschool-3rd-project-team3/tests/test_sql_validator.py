@@ -1,6 +1,10 @@
 import pytest
 
-from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
+from rbac_rag.sql_validator import (
+    SqlValidationError,
+    build_safe_projection_sql,
+    validate_select_sql,
+)
 
 
 ALLOWED = {"cos_adb.silver.events", "cos_adb.silver.products"}
@@ -64,3 +68,22 @@ def test_validate_select_sql_checks_alias_qualified_columns() -> None:
             ALLOWED,
             table_columns=COLUMNS,
         )
+
+
+def test_build_safe_projection_sql_uses_real_business_columns() -> None:
+    sql = build_safe_projection_sql(
+        "SELECT manual_id FROM cos_adb.silver.products",
+        ALLOWED,
+        {
+            "cos_adb.silver.products": [
+                "_snapshot_id",
+                "record_id",
+                "product_id",
+                "product_name",
+                "status",
+                "allowed_roles",
+            ]
+        },
+    )
+
+    assert sql == "SELECT record_id, product_id, product_name, status FROM cos_adb.silver.products LIMIT 20"
