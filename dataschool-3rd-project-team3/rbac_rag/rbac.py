@@ -23,6 +23,10 @@ ROLE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
 
 ROLE_TABLE_POLICY_TABLE = "governance.role_table_permissions"
 
+SENSITIVE_TABLE_ROLE_ALLOWLIST = {
+    "silver.hr_payroll_summary": {"HR_MANAGER", "PAYROLL_MANAGER"},
+}
+
 FALLBACK_ROLE_ALLOWED_TABLES = {
     "COMPLIANCE_MANAGER": [
         "silver.legal_compliance_audit_log",
@@ -203,6 +207,22 @@ def list_role_ids(spark: Any, catalog: str = "cos_adb") -> list[str]:
 def get_role_allowed_tables(role_id: str, catalog: str = "cos_adb") -> set[str]:
     table_suffixes = FALLBACK_ROLE_ALLOWED_TABLES.get(role_id, [])
     return {f"{catalog}.{suffix}" for suffix in table_suffixes}
+
+
+def get_sensitive_table_denials(
+    role_id: str | None,
+    tables: Collection[str],
+    catalog: str = "cos_adb",
+) -> list[str]:
+    if not role_id:
+        return []
+    normalized_role = role_id.strip()
+    denied: list[str] = []
+    for suffix, allowed_roles in SENSITIVE_TABLE_ROLE_ALLOWLIST.items():
+        fqn = f"{catalog}.{suffix}".lower()
+        if any(str(table).lower() == fqn for table in tables) and normalized_role not in allowed_roles:
+            denied.append(f"{catalog}.{suffix}")
+    return sorted(denied)
 
 
 def get_role_table_access(

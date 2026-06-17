@@ -1,7 +1,7 @@
 import pytest
 from types import SimpleNamespace
 
-from rbac_rag.rbac import FALLBACK_ROLE_ALLOWED_TABLES, get_role_allowed_tables, get_role_table_access, validate_role_id
+from rbac_rag.rbac import FALLBACK_ROLE_ALLOWED_TABLES, get_role_allowed_tables, get_role_table_access, get_sensitive_table_denials, validate_role_id
 
 
 COS_ADB_TABLE_SNAPSHOT = {
@@ -124,3 +124,17 @@ def test_role_table_access_prefers_governance_policy() -> None:
         "cos_adb.silver.events",
         "cos_adb.silver.hr_payroll_summary",
     }
+
+
+def test_sensitive_table_denials_block_payroll_for_non_hr_roles() -> None:
+    assert get_sensitive_table_denials(
+        "MARKETING_STAFF",
+        ["cos_adb.silver.events", "cos_adb.silver.hr_payroll_summary"],
+        "cos_adb",
+    ) == ["cos_adb.silver.hr_payroll_summary"]
+
+    assert get_sensitive_table_denials(
+        "PAYROLL_MANAGER",
+        ["cos_adb.silver.hr_payroll_summary"],
+        "cos_adb",
+    ) == []

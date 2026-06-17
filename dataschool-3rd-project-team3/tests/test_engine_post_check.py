@@ -8,6 +8,10 @@ class FakeSql:
     def sql(self, statement, args=None):
         if "access_policies" in statement:
             return FakeRoleDataFrame()
+        if "role_table_permissions" in statement:
+            raise RuntimeError("policy unavailable")
+        if "information_schema.tables" in statement:
+            raise RuntimeError("catalog unavailable")
         return FakeDataFrame()
 
 
@@ -22,6 +26,33 @@ class FakeDataFrame:
 
     def toPandas(self):
         return FakeTable()
+
+
+class FakePolicyResult:
+    def __init__(self, rows):
+        self.rows = [SimpleNamespace(**row) for row in rows]
+
+    def collect(self):
+        return self.rows
+
+
+class FakePermissivePolicySql(FakeSql):
+    def sql(self, statement, args=None):
+        if "role_table_permissions" in statement:
+            return FakePolicyResult(
+                [
+                    {"table_fqn": "cos_adb.silver.events"},
+                    {"table_fqn": "cos_adb.silver.hr_payroll_summary"},
+                ]
+            )
+        if "information_schema.tables" in statement:
+            return FakePolicyResult(
+                [
+                    {"fqn": "cos_adb.silver.events"},
+                    {"fqn": "cos_adb.silver.hr_payroll_summary"},
+                ]
+            )
+        return super().sql(statement, args=args)
 
 
 class FakeTable:
@@ -140,9 +171,9 @@ class PayrollSubqueryLlm(FakeLlm):
         return text
 
 
-def build_engine(fake_llm):
+def build_engine(fake_llm, spark=None):
     return RagEngine(
-        spark=FakeSql(),
+        spark=spark or FakeSql(),
         llm=fake_llm,
         settings=RagSettings(),
         mappings=FakeMappings(),
@@ -221,6 +252,25 @@ def test_engine_blocks_payroll_subquery_for_marketing_role_before_execution() ->
 
     assert result["status"] == "DENIED"
     assert result["failure_reason"] == "SQL_VALIDATION_ERROR"
+    assert "hr_payroll_summary" in result["detail"]
+    assert fake_llm.post_check_calls == 0
+
+
+def test_engine_blocks_sensitive_payroll_even_when_policy_allows_table() -> None:
+    fake_llm = PayrollSubqueryLlm()
+    engine = build_engine(fake_llm, spark=FakePermissivePolicySql())
+
+    result = engine.ask_rag(
+        "show event data and include salary",
+        role_id="MARKETING_STAFF",
+        rbac_enabled=True,
+        post_check_enabled=True,
+        verbose=False,
+    )
+
+    assert result["status"] == "DENIED"
+    assert result["failure_reason"] == "SQL_VALIDATION_ERROR"
+    assert "sensitive tables" in result["detail"]
     assert "hr_payroll_summary" in result["detail"]
     assert fake_llm.post_check_calls == 0
 

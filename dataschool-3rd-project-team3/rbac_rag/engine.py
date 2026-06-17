@@ -11,6 +11,7 @@ from .rbac import (
     UNIVERSAL_DOMAINS,
     get_allowed_domains,
     get_role_table_access,
+    get_sensitive_table_denials,
     validate_role_id,
 )
 from .settings import RagSettings
@@ -95,6 +96,7 @@ class RagEngine:
             "failure_reason": None,
             "query_runtime_ms": None,
             "table_access": [],
+            "referenced_tables": [],
             "sql": None,
             "columns_returned": [],
             "row_count_returned": None,
@@ -199,6 +201,28 @@ class RagEngine:
         context = self.llm.build_context(results)
         searched = sorted(set(row[1] for row in results))
         table_columns = getattr(self.mappings, "table_columns", {})
+        referenced_tables: list[str] = []
+
+        def validate_candidate_sql(candidate: str):
+            nonlocal referenced_tables
+            validation = validate_select_sql(
+                candidate,
+                allowed_table_set,
+                table_columns=table_columns,
+            )
+            sensitive_denials = (
+                get_sensitive_table_denials(active_role, validation.tables, self.settings.catalog)
+                if use_rbac
+                else []
+            )
+            if sensitive_denials:
+                raise SqlValidationError(
+                    "SQL references sensitive tables not allowed for "
+                    f"role {active_role}: {', '.join(sensitive_denials)}"
+                )
+            referenced_tables = validation.tables
+            output["referenced_tables"] = validation.tables
+            return validation
 
         def generate_validated_sql(error_msg: str | None = None) -> str:
             _emit(event_callback, "sql_generation", retry=bool(error_msg))
@@ -212,11 +236,7 @@ class RagEngine:
                 )
             )
             output["sql"] = candidate
-            validation = validate_select_sql(
-                candidate,
-                allowed_table_set,
-                table_columns=table_columns,
-            )
+            validation = validate_candidate_sql(candidate)
             output["sql"] = validation.sql
             _emit(event_callback, "sql_validation", status="PASS", tables=validation.tables)
             return validation.sql
@@ -233,11 +253,7 @@ class RagEngine:
                     table_columns,
                 )
                 if fallback_sql:
-                    validation = validate_select_sql(
-                        fallback_sql,
-                        allowed_table_set,
-                        table_columns=table_columns,
-                    )
+                    validation = validate_candidate_sql(fallback_sql)
                     sql = validation.sql
                     output["sql"] = sql
                     _emit(
@@ -292,12 +308,11 @@ class RagEngine:
                             print(format_output(output))
                         return output
                 else:
+                    access_tables = referenced_tables or [
+                        self.mappings.table_id_to_fqn.get(table, table) for table in searched
+                    ]
                     output["table_access"] = [
-                        {
-                            "table": self.mappings.table_id_to_fqn.get(table, table),
-                            "result": "ERROR",
-                        }
-                        for table in searched
+                        {"table": table, "result": "ERROR"} for table in access_tables
                     ]
                     output["status"] = "ERROR"
                     output["detail"] = str(error)[:300]
@@ -316,12 +331,11 @@ class RagEngine:
             _emit(event_callback, "post_check", status="RUNNING")
             verdict = self.llm.post_check(active_role, table_list, sql, results_str)
             if is_post_check_failure(verdict):
+                access_tables = referenced_tables or [
+                    self.mappings.table_id_to_fqn.get(table, table) for table in searched
+                ]
                 output["table_access"] = [
-                    {
-                        "table": self.mappings.table_id_to_fqn.get(table, table),
-                        "result": "DENIED",
-                    }
-                    for table in searched
+                    {"table": table, "result": "DENIED"} for table in access_tables
                 ]
                 output["status"] = "DENIED"
                 output["detail"] = f"[Post-Check] {verdict}"
@@ -353,10 +367,10 @@ class RagEngine:
             return output
         _emit(event_callback, "summarization", status="SUCCESS")
 
-        output["table_access"] = [
-            {"table": self.mappings.table_id_to_fqn.get(table, table), "result": "SUCCESS"}
-            for table in searched
+        access_tables = referenced_tables or [
+            self.mappings.table_id_to_fqn.get(table, table) for table in searched
         ]
+        output["table_access"] = [{"table": table, "result": "SUCCESS"} for table in access_tables]
         output["status"] = "SUCCESS"
         output["execution_status"] = "SUCCESS"
         output["permission_check"] = "ALLOW" if use_rbac else None
