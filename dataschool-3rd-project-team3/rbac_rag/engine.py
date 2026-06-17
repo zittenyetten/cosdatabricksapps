@@ -169,6 +169,7 @@ class RagEngine:
 
         context = self.llm.build_context(results)
         searched = sorted(set(row[1] for row in results))
+        table_columns = getattr(self.mappings, "table_columns", {})
 
         def generate_validated_sql(error_msg: str | None = None) -> str:
             _emit(event_callback, "sql_generation", retry=bool(error_msg))
@@ -182,7 +183,11 @@ class RagEngine:
                 )
             )
             output["sql"] = candidate
-            validation = validate_select_sql(candidate, allowed_table_set)
+            validation = validate_select_sql(
+                candidate,
+                allowed_table_set,
+                table_columns=table_columns,
+            )
             output["sql"] = validation.sql
             _emit(event_callback, "sql_validation", status="PASS", tables=validation.tables)
             return validation.sql
@@ -190,12 +195,15 @@ class RagEngine:
         try:
             sql = generate_validated_sql()
         except SqlValidationError as error:
-            self._set_sql_validation_error(output, searched, str(error), use_rbac)
-            _emit(event_callback, "sql_validation", status="BLOCKED", detail=output["detail"])
-            self._save_log(output, event_callback)
-            if verbose:
-                print(format_output(output))
-            return output
+            try:
+                sql = generate_validated_sql(error_msg=str(error))
+            except SqlValidationError as retry_error:
+                self._set_sql_validation_error(output, searched, str(retry_error), use_rbac)
+                _emit(event_callback, "sql_validation", status="BLOCKED", detail=output["detail"])
+                self._save_log(output, event_callback)
+                if verbose:
+                    print(format_output(output))
+                return output
 
         query_started = time.perf_counter()
         for attempt in range(2):

@@ -36,6 +36,7 @@ class FakeTable:
 
 class FakeMappings:
     table_id_to_fqn = {"synthetic__events": "cos_adb.silver.events"}
+    table_columns = {"cos_adb.silver.events": ["event_id", "status"]}
 
     def get_all_table_list(self):
         return "  - cos_adb.silver.events"
@@ -78,6 +79,21 @@ class FakeLlm:
 
     def summarize_results(self, *args, **kwargs):
         return "answer"
+
+
+class RetryColumnLlm(FakeLlm):
+    def __init__(self):
+        super().__init__()
+        self.generate_sql_calls = 0
+
+    def generate_sql(self, *args, **kwargs):
+        self.generate_sql_calls += 1
+        if self.generate_sql_calls == 1:
+            return "SELECT manual_id FROM cos_adb.silver.events LIMIT 20"
+        return "SELECT event_id FROM cos_adb.silver.events LIMIT 20"
+
+    def extract_sql(self, text):
+        return text
 
 
 def build_engine(fake_llm):
@@ -128,3 +144,20 @@ def test_engine_runs_post_check_when_enabled() -> None:
     assert result["status"] == "SUCCESS"
     assert result["post_check"] is True
     assert fake_llm.post_check_calls == 1
+
+
+def test_engine_retries_when_generated_sql_uses_unknown_column() -> None:
+    fake_llm = RetryColumnLlm()
+    engine = build_engine(fake_llm)
+
+    result = engine.ask_rag(
+        "show customer service manuals",
+        role_id="GENERAL_EMPLOYEE",
+        rbac_enabled=True,
+        post_check_enabled=False,
+        verbose=False,
+    )
+
+    assert result["status"] == "SUCCESS"
+    assert result["sql"] == "SELECT event_id FROM cos_adb.silver.events LIMIT 20"
+    assert fake_llm.generate_sql_calls == 2

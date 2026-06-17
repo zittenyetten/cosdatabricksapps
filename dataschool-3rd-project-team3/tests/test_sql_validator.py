@@ -4,6 +4,10 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 
 
 ALLOWED = {"cos_adb.silver.events", "cos_adb.silver.products"}
+COLUMNS = {
+    "cos_adb.silver.events": ["event_id", "status"],
+    "cos_adb.silver.products": ["product_id", "product_name", "status"],
+}
 
 
 def test_validate_select_sql_adds_limit() -> None:
@@ -33,3 +37,30 @@ def test_validate_select_sql_rejects_non_allowed_table() -> None:
     with pytest.raises(SqlValidationError):
         validate_select_sql("SELECT * FROM cos_adb.gold.secret_table", ALLOWED)
 
+
+def test_validate_select_sql_rejects_unknown_column() -> None:
+    with pytest.raises(SqlValidationError, match="manual_id"):
+        validate_select_sql(
+            "SELECT manual_id FROM cos_adb.silver.products",
+            ALLOWED,
+            table_columns=COLUMNS,
+        )
+
+
+def test_validate_select_sql_allows_known_unqualified_columns() -> None:
+    result = validate_select_sql(
+        "SELECT product_id, product_name FROM cos_adb.silver.products",
+        ALLOWED,
+        table_columns=COLUMNS,
+    )
+
+    assert result.sql.endswith("LIMIT 20")
+
+
+def test_validate_select_sql_checks_alias_qualified_columns() -> None:
+    with pytest.raises(SqlValidationError, match="p.manual_id"):
+        validate_select_sql(
+            "SELECT p.manual_id FROM cos_adb.silver.products p",
+            ALLOWED,
+            table_columns=COLUMNS,
+        )
