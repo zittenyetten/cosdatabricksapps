@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 from typing import Any, Callable
@@ -290,7 +291,7 @@ class RagEngine:
         if use_post_check and use_rbac:
             _emit(event_callback, "post_check", status="RUNNING")
             verdict = self.llm.post_check(active_role, table_list, sql, results_str)
-            if verdict.upper().startswith("FAIL"):
+            if is_post_check_failure(verdict):
                 output["table_access"] = [
                     {
                         "table": self.mappings.table_id_to_fqn.get(table, table),
@@ -395,6 +396,15 @@ class RagEngine:
 def _emit(callback: EventCallback | None, event: str, **payload: Any) -> None:
     if callback is not None:
         callback(event, payload)
+
+
+def is_post_check_failure(verdict: str) -> bool:
+    normalized = str(verdict or "").strip().upper()
+    first_token = re.match(
+        r"^[^A-Z]*(FAIL|DENY|DENIED|BLOCK|BLOCKED|REJECT|REJECTED|UNSAFE)\b",
+        normalized,
+    )
+    return bool(first_token)
 
 
 def format_output(output: dict[str, Any]) -> str:

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from rbac_rag.engine import RagEngine
+from rbac_rag.engine import RagEngine, is_post_check_failure
 from rbac_rag.settings import RagSettings
 
 
@@ -102,6 +102,12 @@ class AlwaysBadColumnLlm(RetryColumnLlm):
         return "SELECT manual_id FROM cos_adb.silver.events LIMIT 20"
 
 
+class DenyPostCheckLlm(FakeLlm):
+    def post_check(self, *args, **kwargs):
+        self.post_check_calls += 1
+        return "DENY: generated answer exposes restricted data"
+
+
 def build_engine(fake_llm):
     return RagEngine(
         spark=FakeSql(),
@@ -150,6 +156,30 @@ def test_engine_runs_post_check_when_enabled() -> None:
     assert result["status"] == "SUCCESS"
     assert result["post_check"] is True
     assert fake_llm.post_check_calls == 1
+
+
+def test_engine_blocks_post_check_deny_verdict() -> None:
+    fake_llm = DenyPostCheckLlm()
+    engine = build_engine(fake_llm)
+
+    result = engine.ask_rag(
+        "show events",
+        role_id="GENERAL_EMPLOYEE",
+        rbac_enabled=True,
+        post_check_enabled=True,
+        verbose=False,
+    )
+
+    assert result["status"] == "DENIED"
+    assert result["failure_reason"] == "POST_CHECK_FAILED"
+    assert fake_llm.post_check_calls == 1
+
+
+def test_post_check_failure_parser_accepts_block_and_deny() -> None:
+    assert is_post_check_failure("FAIL: restricted")
+    assert is_post_check_failure("DENY: restricted")
+    assert is_post_check_failure("BLOCKED: restricted")
+    assert not is_post_check_failure("PASS: allowed")
 
 
 def test_engine_retries_when_generated_sql_uses_unknown_column() -> None:

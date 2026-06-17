@@ -42,6 +42,22 @@ def test_validate_select_sql_rejects_non_allowed_table() -> None:
         validate_select_sql("SELECT * FROM cos_adb.gold.secret_table", ALLOWED)
 
 
+def test_validate_select_sql_rejects_non_allowed_table_in_subquery() -> None:
+    with pytest.raises(SqlValidationError, match="hr_payroll_summary"):
+        validate_select_sql(
+            """
+            SELECT e.event_id,
+                   (SELECT p.base_salary
+                    FROM cos_adb.silver.hr_payroll_summary p
+                    WHERE p.employee_id = e.owner_employee_id
+                    LIMIT 1) AS amt
+            FROM cos_adb.silver.events e
+            LIMIT 20
+            """,
+            {"cos_adb.silver.events"},
+        )
+
+
 def test_validate_select_sql_rejects_unknown_column() -> None:
     with pytest.raises(SqlValidationError, match="manual_id"):
         validate_select_sql(
