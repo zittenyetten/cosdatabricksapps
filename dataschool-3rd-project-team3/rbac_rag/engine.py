@@ -7,7 +7,12 @@ from .llm import DatabricksLLM
 from .logging_utils import kst_now, save_rag_log
 from .mappings import TableMappings
 from .prompts import MSG_ACCESS_DENIED
-from .rbac import UNIVERSAL_DOMAINS, get_allowed_domains, validate_role_id
+from .rbac import (
+    UNIVERSAL_DOMAINS,
+    get_allowed_domains,
+    get_role_allowed_tables,
+    validate_role_id,
+)
 from .settings import RagSettings
 from .sql_validator import (
     SqlValidationError,
@@ -109,9 +114,12 @@ class RagEngine:
                 if role_id
                 else self.allowed_domains
             )
-            table_list = self.mappings.get_allowed_table_list(domains) if role_id else self.rbac_table_list
-            table_id_mapping = self.mappings.get_table_id_mapping_str(domains)
             allowed_table_set = self.mappings.get_allowed_tables(domains)
+            role_allowed_tables = get_role_allowed_tables(active_role, self.settings.catalog)
+            if role_allowed_tables:
+                allowed_table_set = allowed_table_set.intersection(role_allowed_tables)
+            table_list = self.mappings.format_table_list(allowed_table_set)
+            table_id_mapping = self.mappings.get_table_id_mapping_for_tables(allowed_table_set)
         else:
             domains = None
             table_list = self.mappings.get_all_table_list()

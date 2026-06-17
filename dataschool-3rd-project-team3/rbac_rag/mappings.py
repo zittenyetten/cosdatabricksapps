@@ -53,7 +53,7 @@ class TableMappings:
         )
 
     def get_allowed_table_list(self, domains: list[str]) -> str:
-        return "\n".join(self._format_table_entry(table) for table in sorted(self.get_allowed_tables(domains)))
+        return self.format_table_list(self.get_allowed_tables(domains))
 
     def get_allowed_tables(self, domains: list[str]) -> set[str]:
         tables: set[str] = set()
@@ -63,22 +63,28 @@ class TableMappings:
         return tables
 
     def get_table_id_mapping_str(self, domains: list[str]) -> str:
+        return self.get_table_id_mapping_for_tables(self.get_allowed_tables(domains))
+
+    def get_table_id_mapping_for_tables(self, allowed_tables: set[str]) -> str:
         return "\n".join(
             sorted(
                 f"  {ctx.table_id} -> {self.table_id_to_fqn[ctx.table_id]}"
                 for ctx in self.context_rows
-                if ctx.domain in domains and ctx.table_id in self.table_id_to_fqn
+                if self.table_id_to_fqn.get(ctx.table_id) in allowed_tables
             )
         )
 
     def get_all_table_list(self) -> str:
-        return "\n".join(self._format_table_entry(row.fqn) for row in self.table_rows)
+        return self.format_table_list({row.fqn for row in self.table_rows})
 
     def get_all_tables(self) -> set[str]:
         return {row.fqn for row in self.table_rows}
 
     def get_all_domains(self) -> list[str]:
         return sorted(self.domain_to_tables.keys())
+
+    def format_table_list(self, tables: set[str]) -> str:
+        return "\n".join(self._format_table_entry(table) for table in sorted(tables))
 
     def _format_table_entry(self, table: str) -> str:
         columns = self.table_columns.get(table, [])

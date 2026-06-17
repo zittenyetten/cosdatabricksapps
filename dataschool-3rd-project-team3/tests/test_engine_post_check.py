@@ -35,8 +35,14 @@ class FakeTable:
 
 
 class FakeMappings:
-    table_id_to_fqn = {"synthetic__events": "cos_adb.silver.events"}
-    table_columns = {"cos_adb.silver.events": ["event_id", "status"]}
+    table_id_to_fqn = {
+        "synthetic__events": "cos_adb.silver.events",
+        "synthetic__payroll": "cos_adb.silver.hr_payroll_summary",
+    }
+    table_columns = {
+        "cos_adb.silver.events": ["event_id", "status", "owner_employee_id"],
+        "cos_adb.silver.hr_payroll_summary": ["employee_id", "base_salary"],
+    }
 
     def get_all_table_list(self):
         return "  - cos_adb.silver.events"
@@ -48,13 +54,23 @@ class FakeMappings:
         return ["Event"]
 
     def get_allowed_table_list(self, domains):
-        return "  - cos_adb.silver.events"
+        return self.format_table_list(self.get_allowed_tables(domains))
 
     def get_allowed_tables(self, domains):
-        return {"cos_adb.silver.events"}
+        return {"cos_adb.silver.events", "cos_adb.silver.hr_payroll_summary"}
 
     def get_table_id_mapping_str(self, domains):
         return "  synthetic__events -> cos_adb.silver.events"
+
+    def get_table_id_mapping_for_tables(self, tables):
+        return "\n".join(
+            f"  {table_id} -> {table}"
+            for table_id, table in self.table_id_to_fqn.items()
+            if table in tables
+        )
+
+    def format_table_list(self, tables):
+        return "\n".join(f"  - {table}" for table in sorted(tables))
 
 
 class FakeLlm:
@@ -108,6 +124,22 @@ class DenyPostCheckLlm(FakeLlm):
         return "DENY: generated answer exposes restricted data"
 
 
+class PayrollSubqueryLlm(FakeLlm):
+    def generate_sql(self, *args, **kwargs):
+        return """
+        SELECT e.event_id,
+               (SELECT p.base_salary
+                FROM cos_adb.silver.hr_payroll_summary p
+                WHERE p.employee_id = e.owner_employee_id
+                LIMIT 1) AS amt
+        FROM cos_adb.silver.events e
+        LIMIT 20
+        """
+
+    def extract_sql(self, text):
+        return text
+
+
 def build_engine(fake_llm):
     return RagEngine(
         spark=FakeSql(),
@@ -118,7 +150,7 @@ def build_engine(fake_llm):
         rbac_enabled=False,
         post_check_enabled=True,
         allowed_domains=[],
-        valid_role_ids=["GENERAL_EMPLOYEE"],
+        valid_role_ids=["GENERAL_EMPLOYEE", "MARKETING_STAFF"],
         audit_logger=lambda output: "log-1",
         display_results=False,
     )
@@ -175,6 +207,24 @@ def test_engine_blocks_post_check_deny_verdict() -> None:
     assert fake_llm.post_check_calls == 1
 
 
+def test_engine_blocks_payroll_subquery_for_marketing_role_before_execution() -> None:
+    fake_llm = PayrollSubqueryLlm()
+    engine = build_engine(fake_llm)
+
+    result = engine.ask_rag(
+        "show event data and include salary",
+        role_id="MARKETING_STAFF",
+        rbac_enabled=True,
+        post_check_enabled=True,
+        verbose=False,
+    )
+
+    assert result["status"] == "DENIED"
+    assert result["failure_reason"] == "SQL_VALIDATION_ERROR"
+    assert "hr_payroll_summary" in result["detail"]
+    assert fake_llm.post_check_calls == 0
+
+
 def test_post_check_failure_parser_accepts_block_and_deny() -> None:
     assert is_post_check_failure("FAIL: restricted")
     assert is_post_check_failure("DENY: restricted")
@@ -212,5 +262,5 @@ def test_engine_falls_back_when_retry_repeats_unknown_column() -> None:
     )
 
     assert result["status"] == "SUCCESS"
-    assert result["sql"] == "SELECT event_id, status FROM cos_adb.silver.events LIMIT 20"
+    assert result["sql"] == "SELECT event_id, status, owner_employee_id FROM cos_adb.silver.events LIMIT 20"
     assert fake_llm.generate_sql_calls == 2
