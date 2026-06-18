@@ -239,6 +239,30 @@ def test_public_chat_locks_role_and_guards_server_side(monkeypatch) -> None:
     assert payload["security_mode"] == "public_locked"
 
 
+def test_public_chat_allows_role_selection_for_demo_env(monkeypatch) -> None:
+    monkeypatch.setenv("RBAC_RAG_ALLOW_PUBLIC_ROLE_SELECTION", "true")
+    service = install_fake_service(monkeypatch)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "query": "/work show qa data",
+            "role_id": "QA_MANAGER",
+            "rbac_enabled": False,
+            "post_check_enabled": False,
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert service.calls[-1]["role_id"] == "QA_MANAGER"
+    assert service.calls[-1]["rbac_enabled"] is True
+    assert service.calls[-1]["post_check"] is True
+    assert payload["effective_identity"]["role_id"] == "QA_MANAGER"
+    assert payload["security_mode"] == "public_role_demo"
+
+
 def test_admin_simulation_locks_rbac_but_respects_post_check_toggle(monkeypatch) -> None:
     service = install_fake_service(monkeypatch)
     client = TestClient(main.app)

@@ -37,7 +37,7 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "admin-postcheck-toggle-2026-06-17"
+APP_BUILD_ID = "public-role-demo-2026-06-18"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -180,6 +180,7 @@ def build_info() -> dict[str, Any]:
             "sensitive_table_role_guard",
             "answer_summary_result_guard",
             "admin_post_check_toggle",
+            "public_role_selection_demo",
         ],
     }
 
@@ -351,12 +352,13 @@ def env_bool(name: str, default: bool = False) -> bool:
 def secure_request_payload(payload: dict[str, Any], mode: str) -> dict[str, Any]:
     secured = dict(payload)
     if mode == "user":
-        if not env_bool("RBAC_RAG_ALLOW_PUBLIC_ROLE_SELECTION", False):
+        public_role_selection = env_bool("RBAC_RAG_ALLOW_PUBLIC_ROLE_SELECTION", False)
+        if not public_role_selection:
             secured["role_id"] = os.getenv("RBAC_RAG_PUBLIC_ROLE_ID", "GENERAL_EMPLOYEE").strip() or "GENERAL_EMPLOYEE"
         secured["rbac_enabled"] = True
         secured["pre_check_enabled"] = True
         secured["post_check_enabled"] = True
-        secured["security_mode"] = "public_locked"
+        secured["security_mode"] = "public_role_demo" if public_role_selection else "public_locked"
         return secured
 
     if mode == "admin_simulation" and not env_bool("RBAC_RAG_ALLOW_UNSAFE_ADMIN_SIMULATION", False):

@@ -20,3 +20,5 @@ env:
     value: databricks-qwen3-next-80b-a3b-instruct
   - name: RBAC_RAG_TOP_K_DEFAULT
     value: "5"
+  - name: RBAC_RAG_ALLOW_PUBLIC_ROLE_SELECTION
+    value: "true"
