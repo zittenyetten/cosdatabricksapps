@@ -150,6 +150,7 @@ def test_backend_status_includes_build_marker() -> None:
     payload = response.json()
     assert payload["backend"] == "in_process_rag"
     assert payload["build"]["build_id"] == main.APP_BUILD_ID
+    assert payload["guard_profile"] == payload["build"]["guard_profile"]
 
 
 def test_admin_rbac_debug_reports_effective_role_allowlist(monkeypatch) -> None:
@@ -164,6 +165,7 @@ def test_admin_rbac_debug_reports_effective_role_allowlist(monkeypatch) -> None:
     assert "cos_adb.silver.mkt_campaign_plan" in payload["effective_allowed_tables"]
     assert payload["role_table_fallback_used"] is True
     assert "cos_adb.silver.hr_payroll_summary" not in payload["effective_allowed_tables"]
+    assert "cos_adb.silver.hr_payroll_summary" in payload["demo_effective_allowed_tables"]
     assert payload["salary_subquery_probe"]["actual"] == "BLOCKED"
 
 

@@ -1,4 +1,5 @@
 from rbac_rag.env_check import check_env_file, mask_env_value
+from rbac_rag.settings import RagSettings
 
 
 def test_mask_env_value_masks_token() -> None:
@@ -77,3 +78,20 @@ def test_check_env_file_accepts_warehouse_id_without_http_path(tmp_path) -> None
     _, ok = check_env_file(env_file)
 
     assert ok is True
+
+
+def test_settings_reads_guard_profile(monkeypatch) -> None:
+    monkeypatch.setenv("RBAC_RAG_GUARD_PROFILE", "notebook_demo")
+
+    assert RagSettings.from_env().guard_profile == "notebook_demo"
+
+
+def test_settings_rejects_unknown_guard_profile(monkeypatch) -> None:
+    monkeypatch.setenv("RBAC_RAG_GUARD_PROFILE", "unknown")
+
+    try:
+        RagSettings.from_env()
+    except ValueError as exc:
+        assert "RBAC_RAG_GUARD_PROFILE" in str(exc)
+    else:
+        raise AssertionError("expected invalid guard profile to raise")

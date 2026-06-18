@@ -37,7 +37,7 @@ from rbac_rag.sql_validator import SqlValidationError, validate_select_sql
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv(PROJECT_ROOT / "dataschool-3rd-project-team3" / ".env")
-APP_BUILD_ID = "public-role-demo-2026-06-18"
+APP_BUILD_ID = "notebook-demo-parity-2026-06-18"
 
 app = FastAPI(title="COSBELLE RAG Console")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -161,9 +161,11 @@ def source_revision() -> str:
 
 
 def build_info() -> dict[str, Any]:
+    guard_profile = os.getenv("RBAC_RAG_GUARD_PROFILE", "strict").strip().lower() or "strict"
     return {
         "build_id": APP_BUILD_ID,
         "source_revision": source_revision(),
+        "guard_profile": guard_profile,
         "runtime_modules": {
             "rbac_rag.engine": getattr(rag_engine_module, "__file__", "unknown"),
             "rbac_rag.rbac": getattr(rbac_module, "__file__", "unknown"),
@@ -181,6 +183,7 @@ def build_info() -> dict[str, Any]:
             "answer_summary_result_guard",
             "admin_post_check_toggle",
             "public_role_selection_demo",
+            "notebook_demo_guard_profile",
         ],
     }
 
@@ -906,12 +909,14 @@ def health():
 
 @app.get("/api/backend/status")
 def backend_status():
+    guard_profile = build_info()["guard_profile"]
     return {
         "backend": "in_process_rag",
         "rag_api_url_configured": False,
         "databricks_job_configured": False,
         "databricks_host_configured": bool(os.getenv("DATABRICKS_HOST", "").strip()),
         "databricks_sql_configured": databricks_configured(),
+        "guard_profile": guard_profile,
         "build": build_info(),
     }
 
@@ -936,14 +941,23 @@ def debug_rbac(role_id: str):
         )
         role_allowed_tables = role_table_access.tables
         effective_allowed_tables = role_allowed_tables
+        demo_effective_allowed_tables = domain_allowed_tables
         domain_overlap_tables = role_allowed_tables.intersection(domain_allowed_tables)
         salary_probe = build_salary_subquery_probe(service, effective_allowed_tables)
         payroll_table = f"{service.settings.catalog}.silver.hr_payroll_summary"
+        guard_profile = getattr(service.settings, "guard_profile", build_info()["guard_profile"])
         return {
             "build": build_info(),
             "role_id": active_role,
             "catalog": service.settings.catalog,
+            "guard_profile": guard_profile,
             "domains": domains,
+            "demo_note": (
+                "notebook_demo uses domain_allowed_tables for execution; "
+                "role_allowed_tables are strict diagnostics only."
+                if guard_profile == "notebook_demo"
+                else "strict profile uses role_allowed_tables for execution."
+            ),
             "role_table_source": role_table_access.source,
             "role_table_fallback_used": role_table_access.fallback_used,
             "role_table_warnings": role_table_access.warnings,
@@ -953,11 +967,13 @@ def debug_rbac(role_id: str):
             "role_tables_outside_domain_mapping": sorted(role_allowed_tables - domain_allowed_tables),
             "domain_overlap_tables": sorted(domain_overlap_tables),
             "effective_allowed_tables": sorted(effective_allowed_tables),
+            "demo_effective_allowed_tables": sorted(demo_effective_allowed_tables),
             "counts": {
                 "role_allowed_tables": len(role_allowed_tables),
                 "domain_allowed_tables": len(domain_allowed_tables),
                 "domain_overlap_tables": len(domain_overlap_tables),
                 "effective_allowed_tables": len(effective_allowed_tables),
+                "demo_effective_allowed_tables": len(demo_effective_allowed_tables),
             },
             "salary_subquery_probe": salary_probe,
             "sensitive_table_probe": build_sensitive_table_probe(

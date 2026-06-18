@@ -22,3 +22,5 @@ env:
     value: "5"
   - name: RBAC_RAG_ALLOW_PUBLIC_ROLE_SELECTION
     value: "true"
+  - name: RBAC_RAG_GUARD_PROFILE
+    value: notebook_demo

@@ -5,6 +5,9 @@ from rbac_rag.settings import RagSettings
 
 
 class FakeSql:
+    def __init__(self):
+        self.executed_sql = []
+
     def sql(self, statement, args=None):
         if "access_policies" in statement:
             return FakeRoleDataFrame()
@@ -12,6 +15,7 @@ class FakeSql:
             raise RuntimeError("policy unavailable")
         if "information_schema.tables" in statement:
             raise RuntimeError("catalog unavailable")
+        self.executed_sql.append(statement)
         return FakeDataFrame()
 
 
@@ -107,6 +111,7 @@ class FakeMappings:
 class FakeLlm:
     def __init__(self):
         self.post_check_calls = 0
+        self.generated_table_lists = []
 
     def search_metadata(self, *args, **kwargs):
         return [["table", "synthetic__events", "events context", "Event"]]
@@ -115,6 +120,8 @@ class FakeLlm:
         return "context"
 
     def generate_sql(self, *args, **kwargs):
+        if len(args) >= 3:
+            self.generated_table_lists.append(args[2])
         return "```sql\nSELECT event_id FROM cos_adb.silver.events LIMIT 20\n```"
 
     def extract_sql(self, text):
@@ -157,6 +164,8 @@ class DenyPostCheckLlm(FakeLlm):
 
 class PayrollSubqueryLlm(FakeLlm):
     def generate_sql(self, *args, **kwargs):
+        if len(args) >= 3:
+            self.generated_table_lists.append(args[2])
         return """
         SELECT e.event_id,
                (SELECT p.base_salary
@@ -191,11 +200,17 @@ class MaliciousSummaryLlm(FakeLlm):
         """
 
 
-def build_engine(fake_llm, spark=None):
+class DenyPayrollSubqueryLlm(PayrollSubqueryLlm):
+    def post_check(self, *args, **kwargs):
+        self.post_check_calls += 1
+        return "FAIL: 하위 쿼리에서 허용되지 않은 테이블 cos_adb.silver.hr_payroll_summary를 참조함"
+
+
+def build_engine(fake_llm, spark=None, guard_profile="strict"):
     return RagEngine(
         spark=spark or FakeSql(),
         llm=fake_llm,
-        settings=RagSettings(),
+        settings=RagSettings(guard_profile=guard_profile),
         mappings=FakeMappings(),
         selected_role="GENERAL_EMPLOYEE",
         rbac_enabled=False,
@@ -274,6 +289,67 @@ def test_engine_blocks_payroll_subquery_for_marketing_role_before_execution() ->
     assert result["failure_reason"] == "SQL_VALIDATION_ERROR"
     assert "hr_payroll_summary" in result["detail"]
     assert fake_llm.post_check_calls == 0
+
+
+def test_notebook_demo_executes_payroll_subquery_when_post_check_disabled() -> None:
+    fake_llm = PayrollSubqueryLlm()
+    fake_sql = FakeSql()
+    engine = build_engine(fake_llm, spark=fake_sql, guard_profile="notebook_demo")
+
+    result = engine.ask_rag(
+        "show event data and include salary",
+        role_id="MARKETING_STAFF",
+        rbac_enabled=True,
+        post_check_enabled=False,
+        verbose=False,
+    )
+
+    assert result["status"] == "SUCCESS"
+    assert result["post_check"] is False
+    assert result["guard_profile"] == "notebook_demo"
+    assert "cos_adb.silver.hr_payroll_summary" in result["sql"]
+    assert "cos_adb.silver.hr_payroll_summary" in result["referenced_tables"]
+    assert fake_sql.executed_sql == [result["sql"]]
+    assert fake_llm.post_check_calls == 0
+
+
+def test_notebook_demo_blocks_payroll_subquery_after_execution_when_post_check_fails() -> None:
+    fake_llm = DenyPayrollSubqueryLlm()
+    fake_sql = FakeSql()
+    engine = build_engine(fake_llm, spark=fake_sql, guard_profile="notebook_demo")
+
+    result = engine.ask_rag(
+        "show event data and include salary",
+        role_id="MARKETING_STAFF",
+        rbac_enabled=True,
+        post_check_enabled=True,
+        verbose=False,
+    )
+
+    assert result["status"] == "DENIED"
+    assert result["failure_reason"] == "POST_CHECK_FAILED"
+    assert result["data"] is None
+    assert result["row_count_returned"] == 0
+    assert "[Post-Check] FAIL" in result["detail"]
+    assert fake_sql.executed_sql == [result["sql"]]
+    assert fake_llm.post_check_calls == 1
+
+
+def test_notebook_demo_prompt_uses_domain_tables_not_role_table_allowlist() -> None:
+    fake_llm = PayrollSubqueryLlm()
+    engine = build_engine(fake_llm, guard_profile="notebook_demo")
+
+    result = engine.ask_rag(
+        "show event data and include salary",
+        role_id="MARKETING_STAFF",
+        rbac_enabled=True,
+        post_check_enabled=False,
+        verbose=False,
+    )
+
+    assert result["status"] == "SUCCESS"
+    assert fake_llm.generated_table_lists
+    assert "cos_adb.silver.hr_payroll_summary" in fake_llm.generated_table_lists[0]
 
 
 def test_engine_blocks_sensitive_payroll_even_when_policy_allows_table() -> None:

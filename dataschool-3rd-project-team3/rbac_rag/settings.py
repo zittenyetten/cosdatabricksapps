@@ -12,9 +12,15 @@ class RagSettings:
     catalog: str = "cos_adb"
     log_table: str = "cos_adb.governance.rag_sql_query_logs"
     top_k_default: int = 5
+    guard_profile: str = "strict"
 
     @classmethod
     def from_env(cls) -> "RagSettings":
+        guard_profile = os.getenv("RBAC_RAG_GUARD_PROFILE", cls.guard_profile).strip().lower()
+        if guard_profile not in {"strict", "notebook_demo"}:
+            raise ValueError(
+                "RBAC_RAG_GUARD_PROFILE must be one of: strict, notebook_demo"
+            )
         return cls(
             llm_model=os.getenv("RBAC_RAG_LLM_MODEL", cls.llm_model),
             embedding_model=os.getenv("RBAC_RAG_EMBEDDING_MODEL", cls.embedding_model),
@@ -24,6 +30,7 @@ class RagSettings:
             catalog=os.getenv("RBAC_RAG_CATALOG", cls.catalog),
             log_table=os.getenv("RBAC_RAG_LOG_TABLE", cls.log_table),
             top_k_default=int(os.getenv("RBAC_RAG_TOP_K_DEFAULT", str(cls.top_k_default))),
+            guard_profile=guard_profile,
         )
 
 

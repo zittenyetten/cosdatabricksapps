@@ -40,6 +40,13 @@ Databricks Apps 운영에서는 `DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRE
 
 로컬 개발에서만 `DATABRICKS_TOKEN` PAT fallback을 사용할 수 있습니다. 토큰 값은 터미널, 로그, 문서에 출력하지 않습니다.
 
+Guard profile:
+
+- `RBAC_RAG_GUARD_PROFILE=notebook_demo`: 발표/데모용. Databricks Notebook 흐름처럼 domain 기반 RBAC와 SQL 실행 후 Post-check를 사용합니다.
+- `RBAC_RAG_GUARD_PROFILE=strict`: 운영 강화형. role table allowlist, SQL column validation, sensitive table guard, answer guard를 적용합니다.
+
+현재 `app.yaml`은 노트북 데모 재현을 위해 `notebook_demo`로 설정되어 있습니다.
+
 ## 테스트
 
 ```powershell

@@ -19,6 +19,7 @@ from .settings import RagSettings
 from .sql_validator import (
     SqlValidationError,
     build_safe_projection_sql,
+    validate_basic_select_sql,
     validate_select_sql,
 )
 
@@ -104,7 +105,21 @@ class RagEngine:
             "data": None,
             "summary": None,
             "detail": None,
+            "guard_profile": self.settings.guard_profile,
         }
+
+        if self.settings.guard_profile == "notebook_demo":
+            return self._ask_rag_notebook_demo(
+                question=question,
+                top_k=top_k,
+                role_id=role_id,
+                active_role=active_role,
+                use_rbac=use_rbac,
+                use_post_check=use_post_check,
+                output=output,
+                event_callback=event_callback,
+                verbose=verbose,
+            )
 
         if use_rbac:
             domains = (
@@ -409,6 +424,248 @@ class RagEngine:
             self.mappings.table_id_to_fqn.get(table, table) for table in searched
         ]
         output["table_access"] = [{"table": table, "result": "SUCCESS"} for table in access_tables]
+        output["status"] = "SUCCESS"
+        output["execution_status"] = "SUCCESS"
+        output["permission_check"] = "ALLOW" if use_rbac else None
+        output["success_reason"] = "SQL_EXECUTED_AND_RESPONSE_RETURNED"
+        output["failure_reason"] = None
+
+        self._save_log(output, event_callback)
+
+        if verbose and self.display_results:
+            print(format_output(output))
+            try:
+                display(df.limit(20))
+            except NameError:
+                pass
+
+        return output
+
+    def _ask_rag_notebook_demo(
+        self,
+        *,
+        question: str,
+        top_k: int,
+        role_id: str | None,
+        active_role: str | None,
+        use_rbac: bool,
+        use_post_check: bool,
+        output: dict[str, Any],
+        event_callback: EventCallback | None,
+        verbose: bool,
+    ) -> dict[str, Any]:
+        if use_rbac:
+            domains = (
+                get_allowed_domains(
+                    self.spark,
+                    active_role,
+                    self.valid_role_ids or None,
+                    self.settings.catalog,
+                )
+                if role_id
+                else self.allowed_domains
+            )
+            table_list = self.mappings.get_allowed_table_list(domains)
+            table_id_mapping = self.mappings.get_table_id_mapping_str(domains)
+        else:
+            domains = None
+            table_list = self.mappings.get_all_table_list()
+            table_id_mapping = self.mappings.get_table_id_mapping_str(self.mappings.get_all_domains())
+
+        _emit(
+            event_callback,
+            "rbac",
+            enabled=use_rbac,
+            role_id=active_role,
+            allowed_domains=domains or [],
+            role_table_source="notebook_demo_domain_tables" if use_rbac else None,
+            role_table_warnings=[],
+            guard_profile="notebook_demo",
+        )
+
+        if use_rbac:
+            _emit(event_callback, "retrieval", phase="pre_check", top_k=3)
+            unfiltered = self.llm.search_metadata(
+                question,
+                top_k=3,
+                vs_index_name=self.settings.vs_index_name,
+            )
+            needed = set(row[3] for row in unfiltered) - set(UNIVERSAL_DOMAINS)
+            accessible = set(domains or []) - set(UNIVERSAL_DOMAINS)
+            if needed and not needed.intersection(accessible):
+                output["table_access"] = [
+                    {
+                        "table": self.mappings.table_id_to_fqn.get(row[1], row[1]),
+                        "result": "DENIED",
+                    }
+                    for row in unfiltered
+                    if row[3] not in set(UNIVERSAL_DOMAINS)
+                ]
+                output["status"] = "DENIED"
+                output["detail"] = MSG_ACCESS_DENIED.format(role=active_role)
+                output["execution_status"] = "BLOCKED"
+                output["permission_check"] = "DENY"
+                output["failure_reason"] = "RBAC_DOMAIN_DENIED"
+                self._save_log(output, event_callback)
+                if verbose:
+                    print(format_output(output))
+                return output
+
+        _emit(event_callback, "retrieval", phase="context", top_k=top_k)
+        results = self.llm.search_metadata(
+            question,
+            top_k=top_k,
+            vs_index_name=self.settings.vs_index_name,
+            allowed_domains=domains,
+        )
+        if not results:
+            output["status"] = "DENIED"
+            output["detail"] = "검색 결과 없음"
+            output["execution_status"] = "BLOCKED"
+            output["permission_check"] = "DENY"
+            output["failure_reason"] = "NO_SEARCH_RESULT"
+            self._save_log(output, event_callback)
+            if verbose:
+                print(format_output(output))
+            return output
+
+        context = self.llm.build_context(results)
+        searched = sorted(set(row[1] for row in results))
+        referenced_tables: list[str] = []
+
+        def searched_tables() -> list[str]:
+            return [self.mappings.table_id_to_fqn.get(table, table) for table in searched]
+
+        def generate_basic_sql(error_msg: str | None = None) -> str:
+            nonlocal referenced_tables
+            _emit(event_callback, "sql_generation", retry=bool(error_msg))
+            candidate = self.llm.extract_sql(
+                self.llm.generate_sql(
+                    question,
+                    context,
+                    table_list,
+                    table_id_mapping=table_id_mapping,
+                    error_msg=error_msg,
+                )
+            )
+            output["sql"] = candidate
+            validation = validate_basic_select_sql(candidate)
+            referenced_tables = validation.tables
+            output["referenced_tables"] = validation.tables
+            output["sql"] = validation.sql
+            _emit(event_callback, "sql_validation", status="PASS", tables=validation.tables)
+            return validation.sql
+
+        try:
+            sql = generate_basic_sql()
+        except SqlValidationError as error:
+            try:
+                sql = generate_basic_sql(error_msg=str(error))
+            except SqlValidationError as retry_error:
+                self._set_sql_validation_error(output, searched, str(retry_error), use_rbac)
+                _emit(event_callback, "sql_validation", status="BLOCKED", detail=output["detail"])
+                self._save_log(output, event_callback)
+                if verbose:
+                    print(format_output(output))
+                return output
+
+        query_started = time.perf_counter()
+        for attempt in range(2):
+            try:
+                _emit(event_callback, "sql_execution", attempt=attempt + 1)
+                df = self.spark.sql(sql)
+                pdf = df.limit(20).toPandas()
+                output["data"] = df
+                output["columns_returned"] = list(pdf.columns)
+                output["row_count_returned"] = len(pdf)
+                output["query_runtime_ms"] = int((time.perf_counter() - query_started) * 1000)
+                output["execution_status"] = "SUCCESS"
+                break
+            except Exception as error:
+                if attempt == 0:
+                    try:
+                        sql = generate_basic_sql(error_msg=str(error))
+                    except SqlValidationError as validation_error:
+                        self._set_sql_validation_error(
+                            output,
+                            searched,
+                            str(validation_error),
+                            use_rbac,
+                        )
+                        output["query_runtime_ms"] = int(
+                            (time.perf_counter() - query_started) * 1000
+                        )
+                        _emit(
+                            event_callback,
+                            "sql_validation",
+                            status="BLOCKED",
+                            detail=output["detail"],
+                        )
+                        self._save_log(output, event_callback)
+                        if verbose:
+                            print(format_output(output))
+                        return output
+                else:
+                    output["table_access"] = [
+                        {"table": table, "result": "ERROR"} for table in searched_tables()
+                    ]
+                    output["status"] = "ERROR"
+                    output["detail"] = str(error)[:300]
+                    output["execution_status"] = "FAILED"
+                    output["permission_check"] = "ALLOW" if use_rbac else None
+                    output["failure_reason"] = "SQL_EXECUTION_ERROR"
+                    output["query_runtime_ms"] = int((time.perf_counter() - query_started) * 1000)
+                    output["row_count_returned"] = 0
+                    self._save_log(output, event_callback)
+                    if verbose:
+                        print(format_output(output))
+                    return output
+
+        results_str = pdf.to_string(index=False)
+        if use_post_check and use_rbac:
+            _emit(event_callback, "post_check", status="RUNNING")
+            verdict = self.llm.post_check(active_role, table_list, sql, results_str)
+            if is_post_check_failure(verdict):
+                output["table_access"] = [
+                    {"table": table, "result": "DENIED"} for table in searched_tables()
+                ]
+                output["status"] = "DENIED"
+                output["detail"] = f"[Post-Check] {verdict}"
+                output["data"] = None
+                output["execution_status"] = "SUCCESS"
+                output["permission_check"] = "DENY"
+                output["success_reason"] = "SQL_EXECUTED"
+                output["failure_reason"] = "POST_CHECK_FAILED"
+                output["row_count_returned"] = 0
+                _emit(event_callback, "post_check", status="BLOCKED", verdict=verdict)
+                self._save_log(output, event_callback)
+                if verbose:
+                    print(format_output(output))
+                return output
+            _emit(event_callback, "post_check", status="PASS", verdict=verdict)
+        else:
+            _emit(event_callback, "post_check", status="SKIPPED")
+
+        try:
+            _emit(event_callback, "summarization", status="RUNNING")
+            output["summary"] = self.llm.summarize_results(question, sql, results_str)
+        except Exception as error:
+            output["status"] = "ERROR"
+            output["execution_status"] = "SUCCESS"
+            output["permission_check"] = "ALLOW" if use_rbac else None
+            output["success_reason"] = "SQL_EXECUTED"
+            output["failure_reason"] = "SUMMARY_GENERATION_ERROR"
+            output["detail"] = str(error)[:300]
+            self._save_log(output, event_callback)
+            if verbose:
+                print(format_output(output))
+            return output
+
+        _emit(event_callback, "summarization", status="SUCCESS")
+
+        output["table_access"] = [
+            {"table": table, "result": "SUCCESS"} for table in searched_tables()
+        ]
         output["status"] = "SUCCESS"
         output["execution_status"] = "SUCCESS"
         output["permission_check"] = "ALLOW" if use_rbac else None
